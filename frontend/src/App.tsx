@@ -1,3 +1,4 @@
+import DashboardPage from "./features/dashboard/DashboardPage";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/layout/AppShell";
 import Workspace from "./pages/Workspace";
@@ -8,7 +9,8 @@ function App() {
     <BrowserRouter>
       <AppShell>
         <Routes>
-          <Route path="/" element={<Navigate to="/workspace" replace />} />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/patients" element={<PatientsPage />} />
         </Routes>
