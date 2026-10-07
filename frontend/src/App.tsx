@@ -4,6 +4,7 @@ import AppShell from "./components/layout/AppShell";
 import Workspace from "./pages/Workspace";
 import PatientsPage from "./features/patients/PatientsPage";
 import StudiesPage from "./features/studies/StudiesPage";
+import PatientDetailPage from "./features/patients/PatientDetailPage";
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/patients" element={<PatientsPage />} />
+          <Route path="/patients/:patientId" element={<PatientDetailPage />} />
           <Route path="/studies" element={<StudiesPage />} />
         </Routes>
       </AppShell>
