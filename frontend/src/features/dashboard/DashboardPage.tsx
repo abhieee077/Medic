@@ -8,6 +8,7 @@ import {
   ScanLine,
   Users,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const summaryCards = [
   {
@@ -15,29 +16,34 @@ const summaryCards = [
     value: "24",
     detail: "6 pending review",
     icon: ScanLine,
+    path: "/studies",
   },
   {
     label: "Patients",
     value: "128",
     detail: "12 added this week",
     icon: Users,
+    path: "/patients",
   },
   {
     label: "Reports",
     value: "18",
     detail: "4 drafts awaiting review",
     icon: FileText,
+    path: "/reports",
   },
   {
     label: "AI Analyses",
     value: "31",
     detail: "Across 19 studies",
     icon: Activity,
+    path: "/ai-chat",
   },
 ];
 
 const recentStudies = [
   {
+    id: "ST-00192",
     patient: "John Doe",
     study: "MRI Brain w/ Contrast",
     modality: "MR",
@@ -45,6 +51,7 @@ const recentStudies = [
     status: "Review",
   },
   {
+    id: "ST-00191",
     patient: "Emily Carter",
     study: "CT Chest",
     modality: "CT",
@@ -52,6 +59,7 @@ const recentStudies = [
     status: "AI Analysis",
   },
   {
+    id: "ST-00190",
     patient: "Michael Wilson",
     study: "MRI Knee",
     modality: "MR",
@@ -59,6 +67,7 @@ const recentStudies = [
     status: "Reported",
   },
   {
+    id: "ST-00189",
     patient: "Sophia Martinez",
     study: "CT Head",
     modality: "CT",
@@ -73,28 +82,36 @@ const attentionItems = [
     detail: "4 draft reports need physician review",
     count: "4",
     icon: FileText,
+    path: "/reports",
   },
   {
     title: "Studies pending analysis",
     detail: "6 studies have not been reviewed yet",
     count: "6",
     icon: AlertCircle,
+    path: "/studies",
   },
   {
     title: "Follow-up studies",
     detail: "3 patients have previous studies available",
     count: "3",
     icon: CalendarDays,
+    path: "/timeline",
   },
 ];
 
 function DashboardPage() {
+  const navigate = useNavigate();
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#090b12]">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
         <div>
-          <h1 className="text-xl font-semibold text-white">Dashboard</h1>
+          <h1 className="text-xl font-semibold text-white">
+            Dashboard
+          </h1>
+
           <p className="mt-1 text-sm text-white/40">
             Overview of your imaging workspace and clinical activity.
           </p>
@@ -114,18 +131,19 @@ function DashboardPage() {
             const Icon = card.icon;
 
             return (
-              <div
+              <button
                 key={card.label}
-                className="rounded-2xl border border-white/10 bg-[#0d1018] p-5"
+                onClick={() => navigate(card.path)}
+                className="group rounded-2xl border border-white/10 bg-[#0d1018] p-5 text-left transition hover:border-white/15 hover:bg-white/[0.025]"
               >
                 <div className="flex items-start justify-between">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#7047ff]/15 text-[#9b7cff]">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#7047ff]/15 text-[#9b7cff] transition group-hover:bg-[#7047ff]/20">
                     <Icon size={19} strokeWidth={1.8} />
                   </div>
 
                   <ArrowUpRight
                     size={16}
-                    className="text-white/20"
+                    className="text-white/20 transition group-hover:text-[#9b7cff]"
                   />
                 </div>
 
@@ -142,7 +160,7 @@ function DashboardPage() {
                     {card.detail}
                   </div>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -156,21 +174,28 @@ function DashboardPage() {
                 <h2 className="text-sm font-semibold text-white">
                   Recent Studies
                 </h2>
+
                 <p className="mt-1 text-xs text-white/30">
                   Latest imaging studies in your workspace
                 </p>
               </div>
 
-              <button className="text-xs text-[#9b7cff] hover:text-white">
+              <button
+                onClick={() => navigate("/studies")}
+                className="text-xs text-[#9b7cff] transition hover:text-white"
+              >
                 View all
               </button>
             </div>
 
             <div>
               {recentStudies.map((study) => (
-                <div
-                  key={`${study.patient}-${study.study}`}
-                  className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 last:border-b-0 hover:bg-white/[0.02]"
+                <button
+                  key={study.id}
+                  onClick={() =>
+                    navigate(`/workspace/${study.id}`)
+                  }
+                  className="flex w-full items-center justify-between border-b border-white/[0.06] px-5 py-4 text-left transition last:border-b-0 hover:bg-white/[0.025]"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-white/45">
@@ -189,15 +214,20 @@ function DashboardPage() {
                   </div>
 
                   <div className="ml-4 flex shrink-0 items-center gap-5">
-                    <span className="text-xs text-white/30">
+                    <span className="hidden text-xs text-white/30 lg:block">
                       {study.date}
                     </span>
 
                     <span className="rounded-lg bg-white/[0.05] px-2.5 py-1 text-xs text-white/55">
                       {study.status}
                     </span>
+
+                    <ArrowUpRight
+                      size={14}
+                      className="text-white/20"
+                    />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </section>
@@ -221,6 +251,7 @@ function DashboardPage() {
                 return (
                   <button
                     key={item.title}
+                    onClick={() => navigate(item.path)}
                     className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-white/[0.03]"
                   >
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#7047ff]/10 text-[#9b7cff]">
@@ -240,6 +271,11 @@ function DashboardPage() {
                     <span className="rounded-lg bg-white/[0.05] px-2.5 py-1 text-xs font-medium text-white/55">
                       {item.count}
                     </span>
+
+                    <ArrowUpRight
+                      size={14}
+                      className="text-white/20"
+                    />
                   </button>
                 );
               })}
@@ -260,10 +296,18 @@ function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-3 gap-3">
-            <button className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition hover:border-white/15 hover:bg-white/[0.04]">
-              <ScanLine size={18} className="text-[#9b7cff]" />
+            <button
+              onClick={() =>
+                navigate("/workspace/ST-00192")
+              }
+              className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition hover:border-white/15 hover:bg-white/[0.04]"
+            >
+              <ScanLine
+                size={18}
+                className="text-[#9b7cff]"
+              />
 
-              <div>
+              <div className="flex-1">
                 <div className="text-sm font-medium text-white/80">
                   Open Workspace
                 </div>
@@ -272,12 +316,23 @@ function DashboardPage() {
                   Review an imaging study
                 </div>
               </div>
+
+              <ArrowUpRight
+                size={14}
+                className="text-white/20 transition group-hover:text-white/50"
+              />
             </button>
 
-            <button className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition hover:border-white/15 hover:bg-white/[0.04]">
-              <ClipboardList size={18} className="text-[#9b7cff]" />
+            <button
+              onClick={() => navigate("/reports")}
+              className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition hover:border-white/15 hover:bg-white/[0.04]"
+            >
+              <ClipboardList
+                size={18}
+                className="text-[#9b7cff]"
+              />
 
-              <div>
+              <div className="flex-1">
                 <div className="text-sm font-medium text-white/80">
                   Create Report
                 </div>
@@ -286,12 +341,23 @@ function DashboardPage() {
                   Start a new report draft
                 </div>
               </div>
+
+              <ArrowUpRight
+                size={14}
+                className="text-white/20 transition group-hover:text-white/50"
+              />
             </button>
 
-            <button className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition hover:border-white/15 hover:bg-white/[0.04]">
-              <Users size={18} className="text-[#9b7cff]" />
+            <button
+              onClick={() => navigate("/patients")}
+              className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition hover:border-white/15 hover:bg-white/[0.04]"
+            >
+              <Users
+                size={18}
+                className="text-[#9b7cff]"
+              />
 
-              <div>
+              <div className="flex-1">
                 <div className="text-sm font-medium text-white/80">
                   Find Patient
                 </div>
@@ -300,6 +366,11 @@ function DashboardPage() {
                   Search patient records
                 </div>
               </div>
+
+              <ArrowUpRight
+                size={14}
+                className="text-white/20 transition group-hover:text-white/50"
+              />
             </button>
           </div>
         </section>
