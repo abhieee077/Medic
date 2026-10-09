@@ -1,0 +1,14 @@
+services:
+  orthanc:
+    image: orthancteam/orthanc:latest
+    container_name: medic-orthanc
+    ports:
+      - "8042:8042"
+    environment:
+      ORTHANC_PASSWORD: change-me
+      DICOM_WEB_PLUGIN_ENABLED: "true"
+    volumes:
+      - orthanc_storage:/var/lib/orthanc/db
+
+volumes:
+  orthanc_storage:
