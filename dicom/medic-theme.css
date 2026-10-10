@@ -1,0 +1,24 @@
+body,
+body.dark {
+  --background: 235 12% 8% !important;
+  --foreground: 0 0% 94% !important;
+  --card: 235 10% 11% !important;
+  --card-foreground: 0 0% 94% !important;
+  --popover: 235 11% 13% !important;
+  --popover-foreground: 0 0% 94% !important;
+  --primary: 215 55% 49% !important;
+  --primary-foreground: 0 0% 100% !important;
+  --ring: 215 55% 49% !important;
+  --secondary: 235 8% 19% !important;
+  --secondary-foreground: 0 0% 91% !important;
+  --muted: 235 9% 15% !important;
+  --muted-foreground: 230 5% 67% !important;
+  --border: 235 7% 22% !important;
+  --input: 235 8% 24% !important;
+  --accent: 155 28% 19% !important;
+  --accent-foreground: 150 18% 92% !important;
+  --highlight: 155 38% 43% !important;
+  --neutral: 235 5% 56% !important;
+  --neutral-light: 235 5% 75% !important;
+  --neutral-dark: 235 8% 24% !important;
+}

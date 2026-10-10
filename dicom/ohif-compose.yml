@@ -1,0 +1,11 @@
+services:
+  ohif:
+    image: ohif/app:latest
+    container_name: medic-ohif
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    volumes:
+      - ./ohif-app-config.js:/usr/share/nginx/html/app-config.js:ro
+      - ./ohif-index.html:/usr/share/nginx/html/index.html:ro
+      - ./medic-theme.css:/usr/share/nginx/html/medic-theme.css:ro
