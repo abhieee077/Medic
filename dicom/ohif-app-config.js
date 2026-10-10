@@ -3,6 +3,9 @@ window.config = {
   extensions: [],
   modes: [],
   showStudyList: true,
+    customizationService: [
+    '@ohif/extension-default.customizationModule.theme',
+  ],
 
   dataSources: [
     {
@@ -12,8 +15,8 @@ window.config = {
         friendlyName: 'MEDIC DICOMweb',
         name: 'MEDIC',
         wadoUriRoot: 'http://127.0.0.1:8001/dicom-web',
-        qidoRoot: 'http://127.0.0.1:8001/dicom-web',
-        wadoRoot: 'http://127.0.0.1:8001/dicom-web',
+qidoRoot: 'http://127.0.0.1:8001/dicom-web',
+wadoRoot: 'http://127.0.0.1:8001/dicom-web',
         qidoSupportsIncludeField: true,
         supportsReject: false,
         imageRendering: 'wadors',
