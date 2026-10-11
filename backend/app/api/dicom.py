@@ -86,9 +86,9 @@ def dicom_web_config():
             "dicomWeb": [
                 {
                     "name": "MEDIC",
-                    "wadoUriRoot": "http://127.0.0.1:8000/dicom-web",
-                    "qidoRoot": "http://127.0.0.1:8000/dicom-web",
-                    "wadoRoot": "http://127.0.0.1:8000/dicom-web",
+                    "wadoUriRoot": "/dicom-web",
+                    "qidoRoot": "/dicom-web",
+                    "wadoRoot": "/dicom-web",
                     "qidoSupportsIncludeField": True,
                     "supportsReject": False,
                     "imageRendering": "wadors",

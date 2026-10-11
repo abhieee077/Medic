@@ -6,6 +6,8 @@ from uuid import UUID
 
 import requests
 from fastapi import HTTPException
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -19,13 +21,30 @@ ORTHANC_URL = os.getenv(
 ).rstrip("/")
 ORTHANC_USERNAME = os.getenv("ORTHANC_USERNAME", "orthanc")
 ORTHANC_PASSWORD = os.getenv("ORTHANC_PASSWORD", "")
-ORTHANC_TIMEOUT_SECONDS = 15
+# (connect, read) seconds. Remote Orthanc may sit behind a slow VPN relay.
+ORTHANC_TIMEOUT_SECONDS = (10, 30)
+
+# One keep-alive session for the many per-instance requests an import makes,
+# with retries for transient network failures (these GETs are read-only).
+_orthanc_session = requests.Session()
+_orthanc_session.mount(
+    "http://",
+    HTTPAdapter(
+        max_retries=Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=(502, 503, 504),
+            allowed_methods=("GET",),
+        ),
+    ),
+)
+_orthanc_session.mount("https://", _orthanc_session.get_adapter("http://"))
 
 
 def orthanc_get(path: str) -> requests.Response:
     """Retrieve metadata from Orthanc without modifying it."""
     try:
-        response = requests.get(
+        response = _orthanc_session.get(
             f"{ORTHANC_URL}/{path.lstrip('/')}",
             auth=(ORTHANC_USERNAME, ORTHANC_PASSWORD),
             timeout=ORTHANC_TIMEOUT_SECONDS,

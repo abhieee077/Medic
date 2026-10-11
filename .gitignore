@@ -21,3 +21,6 @@ __pycache__/
 venv/
 
 coverage/
+
+# Local server logs from scripts/start-medic.ps1
+logs/
