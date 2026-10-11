@@ -72,7 +72,9 @@ class RelayHandler(BaseHTTPRequestHandler):
     def _health(self):
         """Readable cross-origin by the Medic frontend (OHIF itself is not)."""
         try:
-            ok = session.get(f"{UPSTREAM}/", timeout=(5, 10)).ok
+            # One quick try without retries, so the UI learns fast when the
+            # OHIF host is offline.
+            ok = requests.get(f"{UPSTREAM}/", timeout=(3, 5)).ok
         except requests.RequestException:
             ok = False
         body = (b'{"relay":true,"upstream":%s}' % (b"true" if ok else b"false"))
@@ -129,7 +131,14 @@ class RelayHandler(BaseHTTPRequestHandler):
             if self.command != "HEAD":
                 self.wfile.write(content)
 
-    do_GET = do_HEAD = do_POST = do_PUT = do_DELETE = do_OPTIONS = do_PATCH = _relay
+    def _handle(self):
+        try:
+            self._relay()
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            # The browser gave up on the request (navigated away, timed out).
+            self.close_connection = True
+
+    do_GET = do_HEAD = do_POST = do_PUT = do_DELETE = do_OPTIONS = do_PATCH = _handle
 
     def log_message(self, format, *args):
         sys.stdout.write(f"[ohif-relay] {self.command} {self.path} {args[1] if len(args) > 1 else ''}\n")

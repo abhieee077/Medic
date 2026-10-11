@@ -131,34 +131,8 @@ def fetch_orthanc_studies() -> list[dict]:
             if modality:
                 modalities.add(modality)
 
-            instance_results = []
-            for orthanc_instance_id in instance_ids:
-                instance_data = orthanc_json(
-                    f"instances/{orthanc_instance_id}"
-                )
-                if not isinstance(instance_data, dict):
-                    raise HTTPException(
-                        status_code=502,
-                        detail="Orthanc returned invalid instance metadata.",
-                    )
-
-                instance_tags = _dict(
-                    instance_data.get("MainDicomTags")
-                )
-                instance_results.append({
-                    "orthanc_instance_id": instance_data.get(
-                        "ID", orthanc_instance_id
-                    ),
-                    "sop_instance_uid": instance_tags.get(
-                        "SOPInstanceUID"
-                    ),
-                    "instance_number": instance_tags.get(
-                        "InstanceNumber"
-                    ),
-                    "sop_class_uid": instance_tags.get("SOPClassUID"),
-                    "file_size": instance_data.get("FileSize"),
-                })
-
+            # The preview only needs counts; per-instance metadata is fetched
+            # (and validated) by confirm_study_import when a study is imported.
             total_instances += len(instance_ids)
             series_results.append({
                 "orthanc_series_id": orthanc_series_id,
@@ -172,7 +146,6 @@ def fetch_orthanc_studies() -> list[dict]:
                 "modality": modality,
                 "body_part": series_tags.get("BodyPartExamined"),
                 "instance_count": len(instance_ids),
-                "instances": instance_results,
             })
 
         results.append({
