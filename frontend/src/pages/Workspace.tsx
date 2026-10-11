@@ -17,6 +17,19 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { OHIF_URL, ohifViewerUrl } from "../features/viewer/ohif";
+import { fetchReports } from "../features/reports/reportApi";
+import {
+  analyzeStudy,
+  createConversation,
+  formatAiTime,
+  getAiStatus,
+  getConversation,
+  listAnalyses,
+  listConversations,
+  sendAiMessage,
+  type AiAnalysis,
+  type AiStatus,
+} from "../features/ai/aiApi";
 
 type StudySummary = {
   id: string;
@@ -51,9 +64,6 @@ type ApiStudy = {
   study_instance_uid: string | null;
   patient: { patient_id: string; full_name: string };
 };
-
-const DEMO_AI_NOTE =
-  "AI analysis is not connected yet. When enabled, AI suggestions will appear here as drafts for physician review.";
 
 function formatDate(date: string | null): string {
   if (!date) return "Date unavailable";
@@ -149,12 +159,55 @@ function Workspace() {
 
   const [findings, setFindings] = useState("");
   const [impression, setImpression] = useState("");
-  const [aiNote, setAiNote] = useState("");
 
+  // Set when the study has no draft but already has a finalized report.
+  const [finalizedReportId, setFinalizedReportId] = useState<string | null>(null);
+
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [analysis, setAnalysis] = useState<AiAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [aiError, setAiError] = useState("");
+
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
+  const [chatSending, setChatSending] = useState(false);
   const [chatMessages, setChatMessages] = useState<
     { role: "user" | "assistant"; text: string }[]
   >([]);
+
+  useEffect(() => {
+    getAiStatus()
+      .then(setAiStatus)
+      .catch(() => setAiStatus({ configured: false, provider: null, model: null }));
+  }, []);
+
+  // Restore the latest AI draft and the study's conversation.
+  useEffect(() => {
+    if (!currentStudyId) return;
+    let cancelled = false;
+
+    listAnalyses(currentStudyId)
+      .then((items) => {
+        if (!cancelled) setAnalysis(items.find((item) => item.status === "COMPLETED") ?? null);
+      })
+      .catch(() => undefined);
+
+    listConversations(currentStudyId)
+      .then(async (items) => {
+        if (cancelled || items.length === 0) return;
+        const conversation = await getConversation(items[0].id);
+        if (cancelled) return;
+        setConversationId(conversation.id);
+        setChatMessages(
+          (conversation.messages ?? []).map((item) => ({ role: item.role, text: item.content })),
+        );
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStudyId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -188,7 +241,9 @@ function Workspace() {
     setSeriesItems([]);
     setSelectedSeries(0);
     setImageIndex(1);
-    setAiNote("");
+    setAnalysis(null);
+    setAiError("");
+    setConversationId(null);
     setChatMessages([]);
 
     void fetch(`/api/v1/patients/${encodeURIComponent(currentPatientId)}`, { signal })
@@ -238,6 +293,7 @@ function Workspace() {
       setFindings("");
       setImpression("");
       setSaved(false);
+      setFinalizedReportId(null);
 
       try {
         const response = await fetch(
@@ -254,6 +310,11 @@ function Workspace() {
           setFindings(data.draft.findings ?? "");
           setImpression(data.draft.impression ?? "");
           setSaved(true);
+        } else if (!cancelled) {
+          const finalized = (await fetchReports()).find(
+            (report) => report.studyId === currentStudyId && report.status === "Finalized",
+          );
+          if (!cancelled && finalized) setFinalizedReportId(finalized.id);
         }
       } catch (error) {
         console.error("Could not load report draft:", error);
@@ -283,55 +344,96 @@ function Workspace() {
     setImageIndex(1);
   };
 
-  // AI is not connected yet. These actions explain that instead of
-  // inserting placeholder clinical text that could be saved as findings.
-  const analyzeStudy = () => {
-    setAiNote(DEMO_AI_NOTE);
-    setChatMessages((current) => [
-      ...current,
-      { role: "assistant", text: DEMO_AI_NOTE },
-    ]);
+  const aiReady = Boolean(aiStatus?.configured);
+  const AI_NOT_CONFIGURED =
+    "AI is not configured. Restart the backend with an Anthropic API key (scripts\\start-medic.ps1).";
+
+  // AI output is a draft: it is shown here and only enters the report when
+  // the physician clicks Insert.
+  const runAnalysis = async (): Promise<AiAnalysis | null> => {
+    if (!study) return null;
+    if (!aiReady) {
+      setAiError(AI_NOT_CONFIGURED);
+      return null;
+    }
+
+    setAnalyzing(true);
+    setAiError("");
+    try {
+      const result = await analyzeStudy(study.id);
+      setAnalysis(result);
+      return result;
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "AI analysis failed.");
+      return null;
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
-  const generateReport = () => {
-    setChatMessages((current) => [
-      ...current,
-      {
-        role: "assistant",
-        text: "AI report drafting is not connected yet. Use Templates in the report editor to start a structured draft, then review and edit before saving.",
-      },
-    ]);
+  const insertDraft = (part: "findings" | "impression" | "both", source = analysis) => {
+    const draft = source?.draft;
+    if (!draft) return;
+
+    const replacing =
+      (part !== "impression" && findings.trim()) || (part !== "findings" && impression.trim());
+    if (replacing && !window.confirm("Replace the text in the report editor with the AI draft?")) {
+      return;
+    }
+
+    if (part !== "impression") setFindings(draft.findings);
+    if (part !== "findings") setImpression(draft.impression);
+    setSaved(false);
   };
 
-  const compareStudy = () => {
-    setChatMessages((current) => [
-      ...current,
-      {
-        role: "assistant",
-        text: "Previous-study comparison will use longitudinal imaging data once historical studies are available through the backend.",
-      },
-    ]);
+  const generateReport = async () => {
+    const result = analysis ?? (await runAnalysis());
+    if (result) insertDraft("both", result);
   };
 
-  const sendMessage = (text = chatInput) => {
+  const sendMessage = async (text = chatInput) => {
     const trimmed = text.trim();
+    if (!trimmed || !study || chatSending) return;
 
-    if (!trimmed) return;
+    if (!aiReady) {
+      setChatMessages((current) => [
+        ...current,
+        { role: "user", text: trimmed },
+        { role: "assistant", text: AI_NOT_CONFIGURED },
+      ]);
+      setChatInput("");
+      return;
+    }
 
-    setChatMessages((current) => [
-      ...current,
-      {
-        role: "user",
-        text: trimmed,
-      },
-      {
-        role: "assistant",
-        text: "The AI assistant is not connected yet. Once the backend AI service is enabled, responses about this study will appear here.",
-      },
-    ]);
-
+    setChatSending(true);
     setChatInput("");
+    setChatMessages((current) => [...current, { role: "user", text: trimmed }]);
+
+    try {
+      const id =
+        conversationId ??
+        (await createConversation({ study_id: study.id, title: `${study.patient} · ${study.description}` })).id;
+      setConversationId(id);
+
+      const conversation = await sendAiMessage(id, trimmed);
+      setChatMessages(
+        (conversation.messages ?? []).map((item) => ({ role: item.role, text: item.content })),
+      );
+    } catch (error) {
+      setChatMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          text: error instanceof Error ? error.message : "The AI could not answer. Try again.",
+        },
+      ]);
+    } finally {
+      setChatSending(false);
+    }
   };
+
+  const compareStudy = () =>
+    sendMessage("Compare this study with any previous studies of this patient in the context.");
 
   const useTemplate = () => {
     if (
@@ -375,6 +477,7 @@ function Workspace() {
 
       await response.json();
       setSaved(true);
+      setFinalizedReportId(null);
     } catch (error) {
       console.error("Could not save report draft:", error);
       window.alert("Could not save the draft. Check that the backend is running and try again.");
@@ -802,22 +905,53 @@ function Workspace() {
                       AI Findings
                     </div>
 
-                    <span className="rounded-md bg-white/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-white/35">
-                      Not connected
+                    <span
+                      className={`rounded-md px-1.5 py-0.5 text-[9px] uppercase tracking-wider ${
+                        !aiReady
+                          ? "bg-white/5 text-white/35"
+                          : analysis?.draft
+                            ? "bg-amber-400/10 text-amber-300"
+                            : "bg-emerald-400/10 text-emerald-300"
+                      }`}
+                    >
+                      {!aiReady ? "Not configured" : analysis?.draft ? "Draft · review required" : "Ready"}
                     </span>
                   </div>
 
-                  <p className="mt-1 truncate text-xs text-white/30">
-                    {aiNote || "Run Analyze to request AI suggestions for physician review."}
+                  <p
+                    className={`mt-1 truncate text-xs ${aiError ? "text-red-300/80" : "text-white/40"}`}
+                    title={analysis?.draft?.impression}
+                  >
+                    {analyzing
+                      ? "Analyzing representative slices... this can take up to a minute."
+                      : aiError ||
+                        (analysis?.draft
+                          ? analysis.draft.impression
+                          : study.studyInstanceUid
+                            ? "Run Analyze for an AI draft of findings and impression."
+                            : "Import images for this study to enable AI analysis.")}
                   </p>
                 </div>
 
-                <button
-                  onClick={analyzeStudy}
-                  className="shrink-0 rounded-lg border border-[#7047ff]/20 bg-[#7047ff]/10 px-3 py-2 text-[10px] text-[#b9aaff] transition hover:bg-[#7047ff]/20"
-                >
-                  Analyze
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  {analysis?.draft && (
+                    <button
+                      onClick={() => insertDraft("both")}
+                      className="rounded-lg border border-white/10 px-3 py-2 text-[10px] text-white/60 transition hover:bg-white/5 hover:text-white"
+                      title="Copy the AI draft into the report editor for review"
+                    >
+                      Insert into report
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => void runAnalysis()}
+                    disabled={analyzing || !study.studyInstanceUid}
+                    className="rounded-lg border border-[#7047ff]/20 bg-[#7047ff]/10 px-3 py-2 text-[10px] text-[#b9aaff] transition hover:bg-[#7047ff]/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {analyzing ? "Analyzing..." : analysis?.draft ? "Re-analyze" : "Analyze"}
+                  </button>
+                </div>
               </div>
             </section>
           </div>
@@ -843,7 +977,7 @@ function Workspace() {
                 </div>
 
                 <div className="text-[10px] text-white/30">
-                  AI Copilot · {study.id}
+                  {aiReady ? `${aiStatus?.model} · ${study.id}` : `Not configured · ${study.id}`}
                 </div>
               </div>
 
@@ -868,49 +1002,120 @@ function Workspace() {
                 </div>
 
                 <p className="mt-2 text-xs leading-5 text-white/40">
-                  Reviewing {study.patient}'s{" "}
-                  {study.description}. AI assistance is not
-                  connected yet, so suggestions here are
-                  placeholders. All report content is written
-                  and approved by the physician.
+                  Reviewing {study.patient}'s {study.description}.{" "}
+                  {aiReady
+                    ? "AI suggestions are drafts: review and edit everything before it goes into the report."
+                    : "AI is not configured yet. Start the backend with an Anthropic API key to enable analysis and chat."}
                 </p>
               </div>
+
+              {analysis?.draft && (
+                <div className="mt-4 rounded-xl border border-amber-400/15 bg-amber-400/[0.03] p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium text-amber-200/90">AI draft · review required</div>
+                    <div className="text-[10px] text-white/30">
+                      {analysis.model} · {formatAiTime(analysis.completed_at)}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 text-[10px] uppercase tracking-wider text-white/30">Findings</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-white/60">
+                    {analysis.draft.findings}
+                  </p>
+
+                  <div className="mt-3 text-[10px] uppercase tracking-wider text-white/30">Impression</div>
+                  <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-white/70">
+                    {analysis.draft.impression}
+                  </p>
+
+                  {analysis.observations.length > 0 && (
+                    <div className="mt-3 space-y-1.5">
+                      {analysis.observations.map((item, index) => (
+                        <div key={`${item.title}-${index}`} className="flex items-start gap-2 text-[11px]">
+                          <span
+                            className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] uppercase ${
+                              item.significance === "urgent"
+                                ? "bg-red-400/15 text-red-300"
+                                : item.significance === "needs_attention"
+                                  ? "bg-amber-400/15 text-amber-300"
+                                  : "bg-white/5 text-white/40"
+                            }`}
+                          >
+                            {(item.significance ?? "note").replace("_", " ")}
+                          </span>
+                          <span className="text-white/55">
+                            <span className="text-white/75">{item.title}</span>
+                            {item.body_region ? ` · ${item.body_region}` : ""}
+                            {item.confidence !== null ? ` · ${Math.round(item.confidence * 100)}%` : ""}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="mt-3 text-[10px] leading-4 text-white/30">
+                    {analysis.draft.limitations}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(["findings", "impression", "both"] as const).map((part) => (
+                      <button
+                        key={part}
+                        onClick={() => insertDraft(part)}
+                        className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[10px] text-white/60 transition hover:bg-white/5 hover:text-white"
+                      >
+                        {part === "both" ? "Insert both" : `Insert ${part}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {chatMessages.length > 0 && (
                 <div className="mt-4 space-y-2">
                   {chatMessages.map((item, index) => (
                     <div
                       key={`${item.role}-${index}`}
-                      className={`rounded-xl p-3 text-xs leading-5 ${
+                      className={`whitespace-pre-wrap rounded-xl p-3 text-xs leading-5 ${
                         item.role === "user"
                           ? "ml-6 bg-[#7047ff]/15 text-white/75"
-                          : "mr-3 border border-white/10 bg-white/[0.025] text-white/45"
+                          : "mr-3 border border-white/10 bg-white/[0.025] text-white/60"
                       }`}
                     >
                       {item.text}
                     </div>
                   ))}
+
+                  {chatSending && (
+                    <div className="mr-3 rounded-xl border border-white/10 bg-white/[0.025] p-3 text-xs text-white/35">
+                      Thinking...
+                    </div>
+                  )}
                 </div>
               )}
 
               <div className="mt-4 space-y-2">
                 <button
-                  onClick={analyzeStudy}
-                  className="w-full rounded-lg border border-white/10 bg-white/[0.015] px-3 py-2.5 text-left text-xs text-white/55 transition hover:bg-white/[0.05] hover:text-white"
+                  onClick={() => void runAnalysis()}
+                  disabled={analyzing || !study.studyInstanceUid}
+                  className="w-full rounded-lg border border-white/10 bg-white/[0.015] px-3 py-2.5 text-left text-xs text-white/55 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Analyze Study
+                  {analyzing ? "Analyzing study..." : "Analyze Study"}
                 </button>
 
                 <button
-                  onClick={compareStudy}
-                  className="w-full rounded-lg border border-white/10 bg-white/[0.015] px-3 py-2.5 text-left text-xs text-white/55 transition hover:bg-white/[0.05] hover:text-white"
+                  onClick={() => void compareStudy()}
+                  disabled={chatSending}
+                  className="w-full rounded-lg border border-white/10 bg-white/[0.015] px-3 py-2.5 text-left text-xs text-white/55 transition hover:bg-white/[0.05] hover:text-white disabled:opacity-40"
                 >
                   Compare Previous Study
                 </button>
 
                 <button
-                  onClick={generateReport}
-                  className="w-full rounded-lg border border-white/10 bg-white/[0.015] px-3 py-2.5 text-left text-xs text-white/55 transition hover:bg-white/[0.05] hover:text-white"
+                  onClick={() => void generateReport()}
+                  disabled={analyzing || !study.studyInstanceUid}
+                  className="w-full rounded-lg border border-white/10 bg-white/[0.015] px-3 py-2.5 text-left text-xs text-white/55 transition hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  title="Analyze if needed, then copy the AI draft into the report editor for review"
                 >
                   Generate Draft Report
                 </button>
@@ -965,7 +1170,7 @@ function Workspace() {
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      sendMessage();
+                      void sendMessage();
                     }
                   }}
                   placeholder="Ask anything about this study..."
@@ -973,8 +1178,8 @@ function Workspace() {
                 />
 
                 <button
-                  onClick={() => sendMessage()}
-                  disabled={!chatInput.trim()}
+                  onClick={() => void sendMessage()}
+                  disabled={!chatInput.trim() || chatSending}
                   className="flex h-8 w-8 items-center justify-center rounded-lg text-white/30 transition hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   <Send size={15} />
@@ -1006,6 +1211,18 @@ function Workspace() {
               >
                 {saved ? "Saved" : "Draft"}
               </span>
+
+              {finalizedReportId && (
+                <span className="flex items-center gap-2 rounded-md bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-300">
+                  Report {finalizedReportId} is finalized
+                  <button
+                    onClick={() => navigate(`/reports/${finalizedReportId}`)}
+                    className="underline decoration-emerald-300/40 underline-offset-2 hover:text-emerald-200"
+                  >
+                    Open report
+                  </button>
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -1021,7 +1238,7 @@ function Workspace() {
                 className="flex items-center gap-2 rounded-lg bg-[#7047ff] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#805cff]"
               >
                 {saved && <Check size={13} />}
-                {saving ? "Saving..." : saved ? "Saved" : "Save Draft"}
+                {saving ? "Saving..." : saved ? "Saved" : finalizedReportId ? "Save new draft" : "Save Draft"}
               </button>
             </div>
           </div>

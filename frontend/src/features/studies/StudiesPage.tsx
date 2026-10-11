@@ -23,6 +23,8 @@ type ApiStudy = {
   study_time: string | null;
   status: string | null;
   accession_number: string | null;
+  series_count?: number;
+  instance_count?: number;
   patient: {
     id: string;
     patient_id: string;
@@ -58,6 +60,8 @@ type Study = {
   modality: string;
   status: string;
   accessionNumber: string;
+  seriesCount: number;
+  imageCount: number;
 };
 
 type OrthancStudy = {
@@ -121,6 +125,8 @@ function mapApiStudy(item: ApiStudy): Study {
     modality: item.modality?.toUpperCase() || "Unknown",
     status: normalizeStatus(item.status),
     accessionNumber: item.accession_number ?? "",
+    seriesCount: item.series_count ?? 0,
+    imageCount: item.instance_count ?? 0,
   };
 }
 
@@ -540,9 +546,10 @@ function StudiesPage() {
                     {study.description}
                   </div>
                   <div className="mt-0.5 text-xs text-white/35">
-                    {study.accessionNumber
-                      ? `Accession: ${study.accessionNumber}`
-                      : "Series count unavailable"}
+                    {study.seriesCount > 0
+                      ? `${study.seriesCount} series`
+                      : "No images imported"}
+                    {study.accessionNumber ? ` · Accession: ${study.accessionNumber}` : ""}
                   </div>
                 </div>
 
@@ -552,7 +559,9 @@ function StudiesPage() {
                   {study.modality}
                 </span>
 
-                <span className="text-sm text-white/55">—</span>
+                <span className="text-sm text-white/55">
+                  {study.imageCount > 0 ? study.imageCount : "—"}
+                </span>
 
                 <div>
                   <span
@@ -641,9 +650,8 @@ function StudiesPage() {
         </div>
 
         <p className="mt-3 text-xs text-white/30">
-          Study records are loaded from PostgreSQL. Image and series counts
-          are not shown because the studies endpoint does not currently provide
-          them.
+          Study records are loaded from PostgreSQL. Series and image counts
+          come from studies imported from Orthanc.
         </p>
       </div>
 

@@ -54,6 +54,16 @@ export function mapReport(row: ApiReport): Report {
   };
 }
 
+/** One report, or null when it doesn't exist. */
+export async function fetchReport(reportId: string): Promise<Report | null> {
+  const response = await fetch(`/api/v1/reports/${encodeURIComponent(reportId)}`);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Failed to load report (${response.status})`);
+  }
+  return mapReport(await response.json());
+}
+
 export async function fetchReports(): Promise<Report[]> {
   const response = await fetch("/api/v1/reports/");
   if (!response.ok) {

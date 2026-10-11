@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { fetchReports, formatDate, type Report } from "./reportApi";
+import { fetchReport, formatDate, type Report } from "./reportApi";
 
 function ReportDetailPage() {
   const navigate = useNavigate();
@@ -30,8 +30,7 @@ function ReportDetailPage() {
       setLoadError("");
 
       try {
-        const reports = await fetchReports();
-        const mapped = reports.find((item) => item.id === reportId);
+        const mapped = reportId ? await fetchReport(reportId) : null;
 
         if (!mapped) {
           if (!cancelled) setLoadError("Report not found in the database.");
