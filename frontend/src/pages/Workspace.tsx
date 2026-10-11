@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   Maximize2,
   MoreHorizontal,
   RotateCcw,
@@ -13,154 +14,260 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { OHIF_URL, ohifViewerUrl } from "../features/viewer/ohif";
 
-type Study = {
+type StudySummary = {
   id: string;
   patientId: string;
   patient: string;
-  age: number;
-  gender: string;
-  dob: string;
-  mrn: string;
   description: string;
-  accession: string;
   modality: string;
-  series: number;
-  images: number;
   date: string;
+  accession: string;
+  studyInstanceUid: string | null;
 };
 
-const studies: Study[] = [
-  {
-    id: "ST-00192",
-    patientId: "PT-00124",
-    patient: "John Doe",
-    age: 45,
-    gender: "Male",
-    dob: "May 12, 1980",
-    mrn: "MRN 987654",
-    description: "MRI Brain w/ Contrast",
-    accession: "MR20250420-001",
-    modality: "MR",
-    series: 4,
-    images: 192,
-    date: "Apr 20, 2025",
-  },
-  {
-    id: "ST-00191",
-    patientId: "PT-00125",
-    patient: "Emily Carter",
-    age: 38,
-    gender: "Female",
-    dob: "Aug 24, 1986",
-    mrn: "MRN 987655",
-    description: "CT Chest",
-    accession: "CT20250418-001",
-    modality: "CT",
-    series: 3,
-    images: 156,
-    date: "Apr 18, 2025",
-  },
-  {
-    id: "ST-00190",
-    patientId: "PT-00126",
-    patient: "Michael Wilson",
-    age: 62,
-    gender: "Male",
-    dob: "Feb 03, 1963",
-    mrn: "MRN 987656",
-    description: "MRI Knee",
-    accession: "MR20250415-001",
-    modality: "MR",
-    series: 5,
-    images: 248,
-    date: "Apr 15, 2025",
-  },
-  {
-    id: "ST-00189",
-    patientId: "PT-00127",
-    patient: "Sophia Martinez",
-    age: 29,
-    gender: "Female",
-    dob: "Nov 17, 1995",
-    mrn: "MRN 987657",
-    description: "CT Head",
-    accession: "CT20250411-001",
-    modality: "CT",
-    series: 2,
-    images: 84,
-    date: "Apr 11, 2025",
-  },
-  {
-    id: "ST-00188",
-    patientId: "PT-00128",
-    patient: "Daniel Brown",
-    age: 51,
-    gender: "Male",
-    dob: "Jun 29, 1973",
-    mrn: "MRN 987658",
-    description: "X-Ray Chest",
-    accession: "CR20250409-001",
-    modality: "CR",
-    series: 1,
-    images: 2,
-    date: "Apr 09, 2025",
-  },
-];
-
-const seriesByStudy: Record<string, string[]> = {
-  "ST-00192": [
-    "Axial T1 + Contrast",
-    "Axial T2 FLAIR",
-    "Sagittal T1",
-    "DWI",
-  ],
-  "ST-00191": ["Axial Chest", "Coronal", "Sagittal"],
-  "ST-00190": [
-    "Sagittal PD",
-    "Coronal T2",
-    "Axial T2",
-    "Sagittal T1",
-    "Localizer",
-  ],
-  "ST-00189": ["Axial Head", "Coronal"],
-  "ST-00188": ["PA Chest"],
+type PatientDetails = {
+  mrn: string;
+  gender: string;
+  age: number | null;
+  dob: string;
 };
+
+type SeriesItem = {
+  uid: string;
+  name: string;
+  images: number;
+};
+
+type ApiStudy = {
+  study_id: string;
+  study_description: string | null;
+  modality: string | null;
+  study_date: string | null;
+  accession_number: string | null;
+  study_instance_uid: string | null;
+  patient: { patient_id: string; full_name: string };
+};
+
+const DEMO_AI_NOTE =
+  "AI analysis is not connected yet. When enabled, AI suggestions will appear here as drafts for physician review.";
+
+function formatDate(date: string | null): string {
+  if (!date) return "Date unavailable";
+
+  const parsed = new Date(`${date.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "Date unavailable";
+
+  return parsed.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function calculateAge(dateOfBirth: string | null): number | null {
+  if (!dateOfBirth) return null;
+
+  const birthDate = new Date(`${dateOfBirth}T00:00:00`);
+  if (Number.isNaN(birthDate.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  if (
+    today.getMonth() < birthDate.getMonth() ||
+    (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate())
+  ) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : null;
+}
+
+function toStudySummary(study: ApiStudy): StudySummary {
+  return {
+    id: study.study_id,
+    patientId: study.patient.patient_id,
+    patient: study.patient.full_name,
+    description: study.study_description || "Untitled study",
+    modality: study.modality || "—",
+    date: formatDate(study.study_date),
+    accession: study.accession_number || "—",
+    studyInstanceUid: study.study_instance_uid,
+  };
+}
 
 function Workspace() {
   const navigate = useNavigate();
   const { studyId } = useParams();
 
-  const study = useMemo(
-    () => studies.find((item) => item.id === studyId) ?? studies[0],
-    [studyId],
-  );
+  const [studies, setStudies] = useState<StudySummary[]>([]);
+  const [studiesLoading, setStudiesLoading] = useState(true);
+  const [studiesError, setStudiesError] = useState("");
+  const [patientDetails, setPatientDetails] = useState<PatientDetails | null>(null);
+  const [seriesItems, setSeriesItems] = useState<SeriesItem[]>([]);
 
-  const seriesList = seriesByStudy[study.id] ?? ["Default Series"];
+  const study = useMemo(
+    () =>
+      (studyId ? studies.find((item) => item.id === studyId) : studies[0]) ?? null,
+    [studies, studyId],
+  );
+  const currentStudyId = study?.id;
+  const currentPatientId = study?.patientId;
+
+  const seriesList = seriesItems.length > 0 ? seriesItems : null;
+
+  // Only imported studies have a StudyInstanceUID, so only they can be viewed.
+  const viewerUrl = study?.studyInstanceUid ? ohifViewerUrl(study.studyInstanceUid) : null;
+  const [ohifUnreachable, setOhifUnreachable] = useState(false);
+
+  useEffect(() => {
+    if (!viewerUrl) return;
+    const controller = new AbortController();
+
+    // The relay reports whether it can reach the OHIF host. OHIF's own pages
+    // can't be read cross-origin (Cross-Origin-Resource-Policy: same-origin).
+    fetch(`${OHIF_URL}/__relay/health`, { cache: "no-store", signal: controller.signal })
+      .then((response) => setOhifUnreachable(!response.ok))
+      .catch(() => {
+        if (!controller.signal.aborted) setOhifUnreachable(true);
+      });
+
+    return () => controller.abort();
+  }, [viewerUrl]);
 
   const [selectedSeries, setSelectedSeries] = useState(0);
   const [imageIndex, setImageIndex] = useState(1);
   const [zoom, setZoom] = useState(100);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [showSeries, setShowSeries] = useState(false);
+  const [showStudies, setShowStudies] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
 
-  const [findings, setFindings] = useState(
-    "No physician-entered findings yet.",
-  );
-
-  const [impression, setImpression] = useState(
-    "No impression entered yet.",
-  );
+  const [findings, setFindings] = useState("");
+  const [impression, setImpression] = useState("");
+  const [aiNote, setAiNote] = useState("");
 
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<
     { role: "user" | "assistant"; text: string }[]
   >([]);
 
-  const totalImages = study.images;
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadStudies() {
+      try {
+        const response = await fetch("/api/v1/studies/", { signal: controller.signal });
+        if (!response.ok) throw new Error(`Studies request failed (${response.status})`);
+
+        const data: { items: ApiStudy[] } = await response.json();
+        setStudies(data.items.map(toStudySummary));
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error("Could not load studies:", error);
+        setStudiesError("Could not load studies. Check that the backend is running.");
+      } finally {
+        if (!controller.signal.aborted) setStudiesLoading(false);
+      }
+    }
+
+    void loadStudies();
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!currentStudyId || !currentPatientId) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    setPatientDetails(null);
+    setSeriesItems([]);
+    setSelectedSeries(0);
+    setImageIndex(1);
+    setAiNote("");
+    setChatMessages([]);
+
+    void fetch(`/api/v1/patients/${encodeURIComponent(currentPatientId)}`, { signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((patient) => {
+        if (!patient || signal.aborted) return;
+        setPatientDetails({
+          mrn: patient.mrn ? `MRN ${patient.mrn}` : "MRN unavailable",
+          gender: patient.gender || "Not specified",
+          age: calculateAge(patient.date_of_birth),
+          dob: patient.date_of_birth ? formatDate(patient.date_of_birth) : "DOB unavailable",
+        });
+      })
+      .catch(() => undefined);
+
+    void fetch(`/api/v1/studies/${encodeURIComponent(currentStudyId)}/series`, { signal })
+      .then((response) => (response.ok ? response.json() : { items: [] }))
+      .then((data) => {
+        if (signal.aborted) return;
+        setSeriesItems(
+          (data.items ?? []).map(
+            (
+              item: {
+                series_instance_uid: string;
+                series_description: string | null;
+                number_of_instances: number | null;
+              },
+              index: number,
+            ) => ({
+              uid: item.series_instance_uid,
+              name: item.series_description || `Series ${index + 1}`,
+              images: item.number_of_instances ?? 0,
+            }),
+          ),
+        );
+      })
+      .catch(() => undefined);
+
+    return () => controller.abort();
+  }, [currentStudyId, currentPatientId]);
+
+  useEffect(() => {
+    if (!currentStudyId) return;
+    let cancelled = false;
+
+    async function loadDraft() {
+      setFindings("");
+      setImpression("");
+      setSaved(false);
+
+      try {
+        const response = await fetch(
+          `/api/v1/reports/study/${encodeURIComponent(currentStudyId ?? "")}`
+        );
+
+        if (!response.ok) {
+          throw new Error(`Draft loading failed (${response.status})`);
+        }
+
+        const data = await response.json();
+
+        if (!cancelled && data.draft) {
+          setFindings(data.draft.findings ?? "");
+          setImpression(data.draft.impression ?? "");
+          setSaved(true);
+        }
+      } catch (error) {
+        console.error("Could not load report draft:", error);
+      }
+    }
+
+    void loadDraft();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStudyId]);
+
+  const totalImages = seriesList?.[selectedSeries]?.images ?? 0;
 
   const changeImage = (direction: number) => {
     setImageIndex((current) =>
@@ -176,24 +283,24 @@ function Workspace() {
     setImageIndex(1);
   };
 
+  // AI is not connected yet. These actions explain that instead of
+  // inserting placeholder clinical text that could be saved as findings.
   const analyzeStudy = () => {
-    setFindings(
-      "AI analysis preview: No acute abnormality is identified in the current mock study context. Mild nonspecific findings may be present. Review the complete study and clinical history before final interpretation.",
-    );
-
-    setImpression(
-      "No acute abnormality identified on the current AI analysis preview.",
-    );
+    setAiNote(DEMO_AI_NOTE);
+    setChatMessages((current) => [
+      ...current,
+      { role: "assistant", text: DEMO_AI_NOTE },
+    ]);
   };
 
   const generateReport = () => {
-    setFindings(
-      "Brain MRI demonstrates no acute intracranial hemorrhage, mass effect, or focal diffusion restriction. Mild scattered T2/FLAIR hyperintense foci are noted within the periventricular white matter.",
-    );
-
-    setImpression(
-      "No acute intracranial abnormality. Mild nonspecific white matter signal changes.",
-    );
+    setChatMessages((current) => [
+      ...current,
+      {
+        role: "assistant",
+        text: "AI report drafting is not connected yet. Use Templates in the report editor to start a structured draft, then review and edit before saving.",
+      },
+    ]);
   };
 
   const compareStudy = () => {
@@ -219,7 +326,7 @@ function Workspace() {
       },
       {
         role: "assistant",
-        text: "Based on the current study context, I can help organize observations, summarize findings, or draft a concise impression. Actual AI responses will be provided once the backend AI service is connected.",
+        text: "The AI assistant is not connected yet. Once the backend AI service is enabled, responses about this study will appear here.",
       },
     ]);
 
@@ -227,28 +334,87 @@ function Workspace() {
   };
 
   const useTemplate = () => {
+    if (
+      (findings.trim() || impression.trim()) &&
+      !window.confirm("Replace the current findings and impression with the template?")
+    ) {
+      return;
+    }
+
     setFindings(
-      "Study demonstrates expected anatomical structures without an acute focal abnormality. Additional findings should be documented following physician review.",
+      "Technique:\n\nComparison:\n\nFindings:\n",
     );
 
-    setImpression(
-      "No acute abnormality identified.",
-    );
+    setImpression("");
 
     setSaved(false);
   };
 
-  const saveDraft = () => {
-    setSaved(true);
+  const saveDraft = async () => {
+    if (!study) return;
+    setSaving(true);
+    setSaved(false);
 
-    window.setTimeout(() => {
-      setSaved(false);
-    }, 2200);
+    try {
+      const response = await fetch("/api/v1/reports/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          study_id: study.id,
+          findings,
+          impression,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Save failed (${response.status})`);
+      }
+
+      await response.json();
+      setSaved(true);
+    } catch (error) {
+      console.error("Could not save report draft:", error);
+      window.alert("Could not save the draft. Check that the backend is running and try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleFullscreen = () => {
     setFullscreen((current) => !current);
   };
+
+  if (studiesLoading || studiesError || !study) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center bg-[#090b12] px-6 text-center">
+        {studiesLoading ? (
+          <p className="text-sm text-white/50">Loading workspace...</p>
+        ) : (
+          <>
+            <h1 className="text-base font-semibold text-white">
+              {studiesError ? "Workspace unavailable" : "Study not found"}
+            </h1>
+            <p className="mt-1 max-w-sm text-sm text-white/35">
+              {studiesError ||
+                (studies.length === 0
+                  ? "No studies exist yet. Import studies to start reviewing."
+                  : `No study matches ${studyId}.`)}
+            </p>
+            <button
+              onClick={() => navigate("/studies")}
+              className="mt-5 flex h-9 items-center gap-2 rounded-xl border border-white/10 px-4 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
+            >
+              <ArrowLeft size={15} />
+              Back to Studies
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -284,12 +450,16 @@ function Workspace() {
               </button>
 
               <span className="text-xs text-white/35">
-                {study.mrn}
+                {patientDetails?.mrn ?? study.patientId}
               </span>
             </div>
 
             <div className="mt-1 text-[11px] text-white/40">
-              {study.gender} · {study.age}Y · {study.dob}
+              {patientDetails
+                ? `${patientDetails.gender} · ${
+                    patientDetails.age === null ? "Age unavailable" : `${patientDetails.age}Y`
+                  } · ${patientDetails.dob}`
+                : "Loading patient details..."}
             </div>
           </div>
 
@@ -328,22 +498,25 @@ function Workspace() {
 
         <div className="relative shrink-0">
           <button
-            onClick={() => setShowSeries((current) => !current)}
+            onClick={() => {
+              setShowSeries(false);
+              setShowStudies((current) => !current);
+            }}
             className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/70 transition hover:bg-white/[0.06] hover:text-white"
           >
             View All Studies
             <ChevronDown
               size={14}
               className={`transition ${
-                showSeries ? "rotate-180" : ""
+                showStudies ? "rotate-180" : ""
               }`}
             />
           </button>
 
-          {showSeries && (
+          {showStudies && (
             <div className="absolute right-0 top-11 z-30 w-72 rounded-xl border border-white/10 bg-[#11141c] p-2 shadow-2xl">
               <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-white/25">
-                Patient Studies
+                Studies
               </div>
 
               {studies
@@ -357,12 +530,12 @@ function Workspace() {
                       item.patientId !== study.patientId,
                   ),
                 )
-                .slice(0, 4)
+                .slice(0, 6)
                 .map((item) => (
                   <button
                     key={item.id}
                     onClick={() => {
-                      setShowSeries(false);
+                      setShowStudies(false);
                       navigate(`/workspace/${item.id}`);
                     }}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition hover:bg-white/5 ${
@@ -405,6 +578,56 @@ function Workspace() {
             {/* ================= VIEWER ================= */}
 
             <section className="relative min-h-0 overflow-hidden bg-[#05070c]">
+              {viewerUrl ? (
+                <>
+                  {/* OHIF DICOM viewer (has its own tools) */}
+                  <iframe
+                    key={viewerUrl}
+                    title="Medic DICOM Viewer"
+                    src={viewerUrl}
+                    className="absolute inset-0 h-full w-full border-0"
+                    allow="fullscreen"
+                    allowFullScreen
+                  />
+
+                  <div className="absolute right-4 top-4 z-20 flex items-center gap-1 rounded-xl border border-white/10 bg-[#11141c]/90 p-1 shadow-lg backdrop-blur">
+                    <a
+                      href={viewerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Open viewer in a new tab"
+                      className="rounded-lg p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+                    >
+                      <ExternalLink size={15} />
+                    </a>
+
+                    <button
+                      onClick={toggleFullscreen}
+                      title={fullscreen ? "Exit fullscreen" : "Fullscreen workspace"}
+                      className="rounded-lg p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+                    >
+                      <Maximize2 size={15} />
+                    </button>
+                  </div>
+
+                  {ohifUnreachable && (
+                    <div className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-amber-400/20 bg-[#11141c]/95 px-3 py-2 text-xs text-amber-200/80 shadow-lg">
+                      <span>
+                        Viewer not loading? Start the OHIF relay (scripts\start-medic.ps1) and
+                        check Tailscale.
+                      </span>
+                      <button
+                        onClick={() => setOhifUnreachable(false)}
+                        className="text-white/40 transition hover:text-white"
+                        title="Dismiss"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+              <>
               {/* Viewer toolbar */}
 
               <div className="absolute left-4 right-4 top-4 z-10 flex items-center justify-between">
@@ -469,22 +692,24 @@ function Workspace() {
               <div className="absolute bottom-10 left-4 z-10">
                 <div className="relative">
                   <button
-                    onClick={() =>
-                      setShowSeries((current) => !current)
-                    }
-                    className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#11141c]/90 px-3 py-2 text-xs text-white/55 backdrop-blur transition hover:text-white"
+                    onClick={() => {
+                      setShowStudies(false);
+                      setShowSeries((current) => !current);
+                    }}
+                    disabled={!seriesList}
+                    className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#11141c]/90 px-3 py-2 text-xs text-white/55 backdrop-blur transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="max-w-40 truncate">
-                      {seriesList[selectedSeries]}
+                      {seriesList?.[selectedSeries]?.name ?? "No series"}
                     </span>
                     <ChevronDown size={13} />
                   </button>
 
-                  {showSeries && (
+                  {showSeries && seriesList && (
                     <div className="absolute bottom-11 left-0 z-30 w-56 rounded-xl border border-white/10 bg-[#11141c] p-2 shadow-2xl">
                       {seriesList.map((series, index) => (
                         <button
-                          key={series}
+                          key={series.uid}
                           onClick={() => {
                             setSelectedSeries(index);
                             setImageIndex(1);
@@ -496,7 +721,7 @@ function Workspace() {
                               : "text-white/50"
                           }`}
                         >
-                          {series}
+                          {series.name}
                         </button>
                       ))}
                     </div>
@@ -526,8 +751,10 @@ function Workspace() {
                     className="relative text-white/[0.10]"
                   />
 
-                  <div className="absolute bottom-4 left-0 right-0 text-center text-[10px] font-mono text-white/20">
-                    DICOM VIEWER PREVIEW
+                  <div className="absolute bottom-4 left-0 right-0 px-4 text-center text-[10px] font-mono text-white/25">
+                    {totalImages > 0
+                      ? "DICOM VIEWER PREVIEW"
+                      : "NO IMAGES IMPORTED FOR THIS STUDY YET"}
                   </div>
                 </div>
               </div>
@@ -544,7 +771,7 @@ function Workspace() {
                 </button>
 
                 <span className="min-w-20 text-center text-[10px] font-mono text-white/35">
-                  Image {imageIndex} / {totalImages}
+                  Image {totalImages > 0 ? imageIndex : 0} / {totalImages}
                 </span>
 
                 <button
@@ -556,11 +783,8 @@ function Workspace() {
                 </button>
               </div>
 
-              {/* Viewer status */}
-
-              <div className="absolute bottom-3 left-4 text-[10px] font-mono text-white/30">
-                WW: 1200 · WL: 600
-              </div>
+              </>
+              )}
             </section>
 
             {/* ================= FINDINGS ================= */}
@@ -577,10 +801,14 @@ function Workspace() {
                     <div className="text-sm font-medium text-white">
                       AI Findings
                     </div>
+
+                    <span className="rounded-md bg-white/5 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-white/35">
+                      Not connected
+                    </span>
                   </div>
 
                   <p className="mt-1 truncate text-xs text-white/30">
-                    {findings}
+                    {aiNote || "Run Analyze to request AI suggestions for physician review."}
                   </p>
                 </div>
 
@@ -640,10 +868,11 @@ function Workspace() {
                 </div>
 
                 <p className="mt-2 text-xs leading-5 text-white/40">
-                  I'm ready to assist with{" "}
-                  {study.patient}'s {study.description}.
-                  Upload and AI analysis will be connected
-                  through the backend later.
+                  Reviewing {study.patient}'s{" "}
+                  {study.description}. AI assistance is not
+                  connected yet, so suggestions here are
+                  placeholders. All report content is written
+                  and approved by the physician.
                 </p>
               </div>
 
@@ -792,7 +1021,7 @@ function Workspace() {
                 className="flex items-center gap-2 rounded-lg bg-[#7047ff] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#805cff]"
               >
                 {saved && <Check size={13} />}
-                {saved ? "Saved" : "Save Draft"}
+                {saving ? "Saving..." : saved ? "Saved" : "Save Draft"}
               </button>
             </div>
           </div>
