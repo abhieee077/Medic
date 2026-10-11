@@ -1,12 +1,13 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import patients, studies
+from app.api.v1 import dicom_import, patients, studies
 
 api_router = APIRouter()
 
 api_router.include_router(patients.router)
 api_router.include_router(studies.router)
+api_router.include_router(dicom_import.router)
 
 
 @api_router.get("/status")
