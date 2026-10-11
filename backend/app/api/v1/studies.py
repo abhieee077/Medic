@@ -2,7 +2,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from database.models import Patient, Study
+from database.models import DicomInstance, Patient, Series, Study
 from database.session import SessionLocal
 
 router = APIRouter(
@@ -83,18 +83,80 @@ def get_study(
 
 
 @router.get("/{study_id}/series")
-def get_study_series(study_id: str):
+def get_study_series(
+    study_id: str,
+    db: Session = Depends(get_db),
+):
+    study = db.execute(
+        select(Study).where(Study.study_id == study_id)
+    ).scalar_one_or_none()
+
+    if study is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Study not found",
+        )
+
+    results = db.execute(
+        select(Series)
+        .where(Series.study_id == study.id)
+        .order_by(Series.series_number)
+    ).scalars().all()
+
+    items = [
+        {
+            "series_instance_uid": series.series_instance_uid,
+            "series_number": series.series_number,
+            "series_description": series.series_description,
+            "modality": series.modality,
+            "body_part": series.body_part,
+            "number_of_instances": series.number_of_instances,
+        }
+        for series in results
+    ]
+
     return {
-        "study_id": study_id,
-        "items": [],
-        "total": 0,
+        "study_id": study.study_id,
+        "items": items,
+        "total": len(items),
     }
 
 
 @router.get("/{study_id}/images")
-def get_study_images(study_id: str):
+def get_study_images(
+    study_id: str,
+    db: Session = Depends(get_db),
+):
+    study = db.execute(
+        select(Study).where(Study.study_id == study_id)
+    ).scalar_one_or_none()
+
+    if study is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Study not found",
+        )
+
+    results = db.execute(
+        select(DicomInstance)
+        .join(Series, DicomInstance.series_id == Series.id)
+        .where(Series.study_id == study.id)
+        .order_by(DicomInstance.instance_number)
+    ).scalars().all()
+
+    items = [
+        {
+            "sop_instance_uid": instance.sop_instance_uid,
+            "orthanc_instance_id": instance.orthanc_instance_id,
+            "instance_number": instance.instance_number,
+            "sop_class_uid": instance.sop_class_uid,
+            "file_size": instance.file_size,
+        }
+        for instance in results
+    ]
+
     return {
-        "study_id": study_id,
-        "items": [],
-        "total": 0,
+        "study_id": study.study_id,
+        "items": items,
+        "total": len(items),
     }
