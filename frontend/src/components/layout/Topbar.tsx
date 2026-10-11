@@ -16,6 +16,7 @@ import {
   Mail,
   Send,
 } from "lucide-react";
+import { fetchReports } from "../../features/reports/reportApi";
 
 type SearchResult = {
   type: "Patient" | "Study" | "Report";
@@ -25,46 +26,56 @@ type SearchResult = {
   icon: typeof Users;
 };
 
-const searchResults: SearchResult[] = [
-  {
-    type: "Patient",
-    title: "John Doe",
-    subtitle: "MRN 987654",
-    path: "/patients/PT-00124",
-    icon: Users,
-  },
-  {
-    type: "Patient",
-    title: "Emily Carter",
-    subtitle: "MRN 987655",
-    path: "/patients/PT-00125",
-    icon: Users,
-  },
-  {
-    type: "Study",
-    title: "MRI Brain w/ Contrast",
-    subtitle: "ST-00192 · John Doe",
-    path: "/workspace/ST-00192",
-    icon: FolderOpen,
-  },
-  {
-    type: "Study",
-    title: "CT Chest",
-    subtitle: "ST-00191 · Emily Carter",
-    path: "/workspace/ST-00191",
-    icon: FolderOpen,
-  },
-  {
-    type: "Report",
-    title: "MRI Brain Report",
-    subtitle: "RP-00124 · John Doe",
-    path: "/reports/RP-00124",
-    icon: FileText,
-  },
-];
+async function loadSearchIndex(): Promise<{ results: SearchResult[]; draftCount: number }> {
+  const [patientsResponse, studiesResponse, reports] = await Promise.all([
+    fetch("/api/v1/patients/"),
+    fetch("/api/v1/studies/"),
+    fetchReports().catch(() => []),
+  ]);
+
+  const patients: { patient_id: string; full_name: string; mrn: string }[] =
+    patientsResponse.ok ? (await patientsResponse.json()).items ?? [] : [];
+  const studies: {
+    study_id: string;
+    study_description: string | null;
+    patient: { full_name: string };
+  }[] = studiesResponse.ok ? (await studiesResponse.json()).items ?? [] : [];
+
+  const results: SearchResult[] = [
+    ...patients.map((patient) => ({
+      type: "Patient" as const,
+      title: patient.full_name,
+      subtitle: `MRN ${patient.mrn} · ${patient.patient_id}`,
+      path: `/patients/${patient.patient_id}`,
+      icon: Users,
+    })),
+    ...studies.map((study) => ({
+      type: "Study" as const,
+      title: study.study_description || study.study_id,
+      subtitle: `${study.study_id} · ${study.patient.full_name}`,
+      path: `/workspace/${study.study_id}`,
+      icon: FolderOpen,
+    })),
+    ...reports.map((report) => ({
+      type: "Report" as const,
+      title: `${report.study} Report`,
+      subtitle: `${report.id} · ${report.patient} · ${report.status}`,
+      path: `/reports/${report.id}`,
+      icon: FileText,
+    })),
+  ];
+
+  return {
+    results,
+    draftCount: reports.filter((report) => report.status === "Draft").length,
+  };
+}
 
 function Topbar() {
   const navigate = useNavigate();
+
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [draftCount, setDraftCount] = useState<number | null>(null);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -93,6 +104,29 @@ function Topbar() {
     );
   });
 
+  function refreshSearchIndex() {
+    loadSearchIndex()
+      .then(({ results, draftCount: drafts }) => {
+        setSearchResults(results);
+        setDraftCount(drafts);
+      })
+      .catch((error) => console.error("Could not load search index:", error));
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    loadSearchIndex()
+      .then(({ results, draftCount: drafts }) => {
+        if (cancelled) return;
+        setSearchResults(results);
+        setDraftCount(drafts);
+      })
+      .catch((error) => console.error("Could not load search index:", error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -118,6 +152,7 @@ function Topbar() {
 
   function openSearch() {
     closeMenus();
+    if (!searchOpen) refreshSearchIndex();
     setSearchOpen(true);
   }
 
@@ -176,7 +211,7 @@ function Topbar() {
 
             <div className="max-h-[360px] overflow-y-auto p-2">
               {filteredResults.length > 0 ? (
-                filteredResults.map((result) => {
+                filteredResults.slice(0, 8).map((result) => {
                   const Icon = result.icon;
 
                   return (
@@ -291,7 +326,9 @@ function Topbar() {
 
                   <div>
                     <div className="text-sm text-white">
-                      4 reports awaiting review
+                      {draftCount === null
+                        ? "Reports awaiting review"
+                        : `${draftCount} ${draftCount === 1 ? "report" : "reports"} awaiting review`}
                     </div>
 
                     <div className="mt-1 text-[11px] text-white/35">
@@ -370,7 +407,7 @@ function Topbar() {
                 </div>
 
                 <div className="mt-1 text-[11px] text-white/35">
-                  Quick guidance for MedSight
+                  Quick guidance for Medic
                 </div>
               </div>
 

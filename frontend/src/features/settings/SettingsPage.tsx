@@ -73,7 +73,7 @@ function SettingsPage() {
           </h1>
 
           <p className="mt-1 text-sm text-white/35">
-            Manage your MedSight workspace preferences.
+            Manage your Medic workspace preferences.
           </p>
         </div>
 

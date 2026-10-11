@@ -6,93 +6,15 @@ import {
   Filter,
   X,
   Plus,
-  Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { fetchReports, type Report } from "./reportApi";
 
-type ReportStatus = "Draft" | "Finalized";
-
-type Report = {
-  id: string;
-  patient: string;
-  mrn: string;
+type StudyOption = {
   studyId: string;
-  study: string;
-  modality: string;
-  createdAt: string;
-  updatedAt: string;
-  author: string;
-  status: ReportStatus;
-  findings: string;
-  impression: string;
+  label: string;
 };
-
-const initialReports: Report[] = [
-  {
-    id: "RP-00124",
-    patient: "John Doe",
-    mrn: "MRN 987654",
-    studyId: "ST-00192",
-    study: "MRI Brain w/ Contrast",
-    modality: "MR",
-    createdAt: "Apr 20, 2025",
-    updatedAt: "Apr 20, 2025",
-    author: "Dr. Sarah Johnson",
-    status: "Finalized",
-    findings:
-      "No acute intracranial hemorrhage or mass effect. Mild scattered T2/FLAIR hyperintense foci are present within the periventricular white matter.",
-    impression:
-      "No acute intracranial abnormality. Mild nonspecific chronic white matter changes.",
-  },
-  {
-    id: "RP-00123",
-    patient: "Emily Carter",
-    mrn: "MRN 987655",
-    studyId: "ST-00191",
-    study: "CT Chest",
-    modality: "CT",
-    createdAt: "Apr 18, 2025",
-    updatedAt: "Apr 18, 2025",
-    author: "Dr. Sarah Johnson",
-    status: "Finalized",
-    findings:
-      "No focal airspace consolidation, pleural effusion, or pneumothorax. Cardiomediastinal silhouette is within normal limits.",
-    impression:
-      "No acute cardiopulmonary abnormality.",
-  },
-  {
-    id: "RP-00122",
-    patient: "Michael Wilson",
-    mrn: "MRN 987656",
-    studyId: "ST-00190",
-    study: "MRI Knee",
-    modality: "MR",
-    createdAt: "Apr 15, 2025",
-    updatedAt: "Apr 15, 2025",
-    author: "Dr. Sarah Johnson",
-    status: "Draft",
-    findings:
-      "Evaluation demonstrates mild joint effusion. There is increased signal involving the medial meniscus.",
-    impression:
-      "Findings suspicious for medial meniscal injury. Recommend correlation with clinical examination.",
-  },
-  {
-    id: "RP-00121",
-    patient: "Sophia Martinez",
-    mrn: "MRN 987657",
-    studyId: "ST-00189",
-    study: "CT Head",
-    modality: "CT",
-    createdAt: "Apr 11, 2025",
-    updatedAt: "Apr 11, 2025",
-    author: "Dr. Sarah Johnson",
-    status: "Draft",
-    findings:
-      "No acute intracranial hemorrhage, midline shift, or mass effect. Ventricular system is within normal limits.",
-    impression: "No acute intracranial abnormality.",
-  },
-];
 
 const statusOptions = ["All", "Draft", "Finalized"];
 const modalityOptions = ["All", "MR", "CT", "CR"];
@@ -100,7 +22,32 @@ const modalityOptions = ["All", "MR", "CT", "CR"];
 function ReportsPage() {
   const navigate = useNavigate();
 
-  const [reports, setReports] = useState(initialReports);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loadingReports, setLoadingReports] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadReports() {
+      try {
+        const mapped = await fetchReports();
+        if (!cancelled) setReports(mapped);
+      } catch (error) {
+        console.error("Could not load reports:", error);
+        if (!cancelled) {
+          setLoadError("Could not load reports. Check that the backend is running.");
+        }
+      } finally {
+        if (!cancelled) setLoadingReports(false);
+      }
+    }
+
+    void loadReports();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [modalityFilter, setModalityFilter] = useState("All");
@@ -108,13 +55,9 @@ function ReportsPage() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  const [createForm, setCreateForm] = useState({
-    patient: "",
-    mrn: "",
-    study: "",
-    modality: "MR",
-  });
-
+  const [studyOptions, setStudyOptions] = useState<StudyOption[]>([]);
+  const [selectedStudyId, setSelectedStudyId] = useState("");
+  const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
   const filteredReports = useMemo(() => {
@@ -154,57 +97,79 @@ function ReportsPage() {
     setModalityFilter("All");
   };
 
-  const resetCreateForm = () => {
-    setCreateForm({
-      patient: "",
-      mrn: "",
-      study: "",
-      modality: "MR",
-    });
+  const openCreateModal = async () => {
+    setIsCreateModalOpen(true);
     setCreateError("");
+
+    try {
+      const response = await fetch("/api/v1/studies/");
+      if (!response.ok) throw new Error(`Failed to load studies (${response.status})`);
+
+      const data = await response.json();
+      const options: StudyOption[] = (data.items ?? []).map(
+        (study: {
+          study_id: string;
+          study_description?: string | null;
+          modality?: string | null;
+          patient?: { full_name?: string };
+        }) => ({
+          studyId: study.study_id,
+          label: `${study.patient?.full_name ?? "Unknown patient"} · ${
+            study.study_description ?? study.study_id
+          } (${study.study_id})`,
+        }),
+      );
+
+      setStudyOptions(options);
+      setSelectedStudyId((current) => current || options[0]?.studyId || "");
+    } catch (error) {
+      console.error("Could not load studies:", error);
+      setCreateError("Could not load studies. Check that the backend is running.");
+    }
   };
 
   const closeCreateModal = () => {
     setIsCreateModalOpen(false);
-    resetCreateForm();
+    setCreateError("");
   };
 
-  const handleCreateReport = () => {
-    const patient = createForm.patient.trim();
-    const mrn = createForm.mrn.trim();
-    const study = createForm.study.trim();
-
-    if (!patient || !mrn || !study) {
-      setCreateError("Please fill in all required fields.");
+  const handleCreateReport = async () => {
+    if (!selectedStudyId) {
+      setCreateError("Please select a study.");
       return;
     }
 
-    const reportNumber = 125 + reports.length;
+    setCreating(true);
+    setCreateError("");
 
-    const newReport: Report = {
-      id: `RP-${String(reportNumber).padStart(5, "0")}`,
-      patient,
-      mrn,
-      studyId: `ST-${String(193 + reports.length).padStart(5, "0")}`,
-      study,
-      modality: createForm.modality,
-      createdAt: "Today",
-      updatedAt: "Today",
-      author: "Dr. Sarah Johnson",
-      status: "Draft",
-      findings: "",
-      impression: "",
-    };
+    try {
+      // A study keeps one active draft. Open it rather than overwriting its text.
+      const existing = await fetch(
+        `/api/v1/reports/study/${encodeURIComponent(selectedStudyId)}`,
+      );
+      if (!existing.ok) throw new Error(`Failed to check drafts (${existing.status})`);
 
-    setReports((current) => [newReport, ...current]);
-    closeCreateModal();
-  };
+      const existingData = await existing.json();
+      if (existingData.draft?.report_id) {
+        navigate(`/reports/${existingData.draft.report_id}`);
+        return;
+      }
 
-  const deleteReport = (reportId: string) => {
-    setReports((current) =>
-      current.filter((report) => report.id !== reportId),
-    );
-    setOpenMenuId(null);
+      const response = await fetch("/api/v1/reports/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ study_id: selectedStudyId, findings: "", impression: "" }),
+      });
+      if (!response.ok) throw new Error(`Failed to create draft (${response.status})`);
+
+      const created = await response.json();
+      navigate(`/reports/${created.report_id}`);
+    } catch (error) {
+      console.error("Could not create report:", error);
+      setCreateError("Could not create the draft. Check that the backend is running.");
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -219,7 +184,7 @@ function ReportsPage() {
         </div>
 
         <button
-          onClick={() => setIsCreateModalOpen(true)}
+          onClick={() => void openCreateModal()}
           className="flex h-10 items-center gap-2 rounded-xl bg-[#7047ff] px-4 text-sm font-medium text-white transition hover:bg-[#805cff]"
         >
           <Plus size={17} />
@@ -338,7 +303,11 @@ function ReportsPage() {
             <span />
           </div>
 
-          {filteredReports.length > 0 ? (
+          {loadingReports ? (
+            <div className="px-5 py-12 text-center text-sm text-white/50">
+              Loading reports...
+            </div>
+          ) : filteredReports.length > 0 ? (
             filteredReports.map((report) => (
               <div
                 key={report.id}
@@ -428,14 +397,6 @@ function ReportsPage() {
                       >
                         Open workspace
                       </button>
-
-                      <button
-                        onClick={() => deleteReport(report.id)}
-                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-red-300 transition hover:bg-red-400/10"
-                      >
-                        <Trash2 size={13} />
-                        Delete report
-                      </button>
                     </div>
                   )}
 
@@ -456,11 +417,14 @@ function ReportsPage() {
               </div>
 
               <p className="text-sm font-medium text-white/70">
-                No reports found
+                {loadError ? "Reports unavailable" : "No reports found"}
               </p>
 
               <p className="mt-1 text-xs text-white/35">
-                Try changing your search or filters.
+                {loadError ||
+                  (hasActiveFilters
+                    ? "Try changing your search or filters."
+                    : "Create a draft report from an imaging study to get started.")}
               </p>
             </div>
           )}
@@ -493,77 +457,26 @@ function ReportsPage() {
             <div className="space-y-4 px-5 py-5">
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-white/50">
-                  Patient Name
-                </label>
-
-                <input
-                  value={createForm.patient}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      patient: event.target.value,
-                    }))
-                  }
-                  placeholder="e.g. John Doe"
-                  className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#7047ff]/60"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-white/50">
-                  MRN
-                </label>
-
-                <input
-                  value={createForm.mrn}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      mrn: event.target.value,
-                    }))
-                  }
-                  placeholder="MRN 987654"
-                  className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#7047ff]/60"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-white/50">
                   Study
                 </label>
 
-                <input
-                  value={createForm.study}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      study: event.target.value,
-                    }))
-                  }
-                  placeholder="e.g. MRI Brain w/ Contrast"
-                  className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#7047ff]/60"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-white/50">
-                  Modality
-                </label>
-
                 <select
-                  value={createForm.modality}
-                  onChange={(event) =>
-                    setCreateForm((current) => ({
-                      ...current,
-                      modality: event.target.value,
-                    }))
-                  }
-                  className="h-10 w-full rounded-xl border border-white/10 bg-[#11141d] px-3 text-sm text-white outline-none focus:border-[#7047ff]/60"
+                  value={selectedStudyId}
+                  onChange={(event) => setSelectedStudyId(event.target.value)}
+                  disabled={studyOptions.length === 0}
+                  className="h-10 w-full rounded-xl border border-white/10 bg-[#11141d] px-3 text-sm text-white outline-none focus:border-[#7047ff]/60 disabled:opacity-50"
                 >
-                  <option>MR</option>
-                  <option>CT</option>
-                  <option>CR</option>
+                  {studyOptions.length === 0 && <option value="">Loading studies...</option>}
+                  {studyOptions.map((option) => (
+                    <option key={option.studyId} value={option.studyId}>
+                      {option.label}
+                    </option>
+                  ))}
                 </select>
+
+                <p className="mt-1.5 text-[11px] text-white/30">
+                  If the study already has a draft, it will be opened instead.
+                </p>
               </div>
 
               {createError && (
@@ -582,10 +495,11 @@ function ReportsPage() {
               </button>
 
               <button
-                onClick={handleCreateReport}
-                className="h-9 rounded-xl bg-[#7047ff] px-4 text-sm font-medium text-white transition hover:bg-[#805cff]"
+                onClick={() => void handleCreateReport()}
+                disabled={creating || !selectedStudyId}
+                className="h-9 rounded-xl bg-[#7047ff] px-4 text-sm font-medium text-white transition hover:bg-[#805cff] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Create Draft
+                {creating ? "Creating..." : "Create Draft"}
               </button>
             </div>
           </div>

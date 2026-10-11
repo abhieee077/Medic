@@ -8,100 +8,176 @@ import {
   ScanLine,
   Users,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { fetchReports, type Report } from "../reports/reportApi";
 
-const summaryCards = [
-  {
-    label: "Studies Today",
-    value: "24",
-    detail: "6 pending review",
-    icon: ScanLine,
-    path: "/studies",
-  },
-  {
-    label: "Patients",
-    value: "128",
-    detail: "12 added this week",
-    icon: Users,
-    path: "/patients",
-  },
-  {
-    label: "Reports",
-    value: "18",
-    detail: "4 drafts awaiting review",
-    icon: FileText,
-    path: "/reports",
-  },
-  {
-    label: "AI Analyses",
-    value: "31",
-    detail: "Across 19 studies",
-    icon: Activity,
-    path: "/ai-chat",
-  },
-];
+type ApiPatient = { patient_id: string; created_at: string | null };
 
-const recentStudies = [
-  {
-    id: "ST-00192",
-    patient: "John Doe",
-    study: "MRI Brain w/ Contrast",
-    modality: "MR",
-    date: "Today, 10:42 AM",
-    status: "Review",
-  },
-  {
-    id: "ST-00191",
-    patient: "Emily Carter",
-    study: "CT Chest",
-    modality: "CT",
-    date: "Today, 09:18 AM",
-    status: "AI Analysis",
-  },
-  {
-    id: "ST-00190",
-    patient: "Michael Wilson",
-    study: "MRI Knee",
-    modality: "MR",
-    date: "Yesterday, 04:36 PM",
-    status: "Reported",
-  },
-  {
-    id: "ST-00189",
-    patient: "Sophia Martinez",
-    study: "CT Head",
-    modality: "CT",
-    date: "Yesterday, 01:12 PM",
-    status: "Draft",
-  },
-];
+type ApiStudy = {
+  study_id: string;
+  study_description: string | null;
+  modality: string | null;
+  study_date: string | null;
+  patient: { patient_id: string; full_name: string };
+};
 
-const attentionItems = [
-  {
-    title: "Reports awaiting review",
-    detail: "4 draft reports need physician review",
-    count: "4",
-    icon: FileText,
-    path: "/reports",
-  },
-  {
-    title: "Studies pending analysis",
-    detail: "6 studies have not been reviewed yet",
-    count: "6",
-    icon: AlertCircle,
-    path: "/studies",
-  },
-  {
-    title: "Follow-up studies",
-    detail: "3 patients have previous studies available",
-    count: "3",
-    icon: CalendarDays,
-    path: "/timeline",
-  },
-];
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
 
 function DashboardPage() {
   const navigate = useNavigate();
+
+  const [patients, setPatients] = useState<ApiPatient[]>([]);
+  const [studies, setStudies] = useState<ApiStudy[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    async function loadData() {
+      try {
+        const [patientsResponse, studiesResponse, reportList] = await Promise.all([
+          fetch("/api/v1/patients/", { signal }),
+          fetch("/api/v1/studies/", { signal }),
+          fetchReports(),
+        ]);
+
+        if (!patientsResponse.ok || !studiesResponse.ok) {
+          throw new Error("Dashboard data request failed");
+        }
+
+        const patientsData = await patientsResponse.json();
+        const studiesData = await studiesResponse.json();
+        if (signal.aborted) return;
+
+        setPatients(patientsData.items ?? []);
+        setStudies(studiesData.items ?? []);
+        setReports(reportList);
+      } catch (error) {
+        if (signal.aborted) return;
+        console.error("Could not load dashboard:", error);
+        setLoadError("Live data could not be loaded. Check that the backend is running.");
+      } finally {
+        if (!signal.aborted) setIsLoading(false);
+      }
+    }
+
+    void loadData();
+    return () => controller.abort();
+  }, []);
+
+  // Captured once so render stays pure.
+  const [now] = useState(() => Date.now());
+  const today = new Date(now).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const draftReports = reports.filter((report) => report.status === "Draft");
+  const reportedStudyIds = new Set(reports.map((report) => report.studyId));
+  const unreportedStudies = studies.filter((study) => !reportedStudyIds.has(study.study_id));
+  const newPatients = patients.filter(
+    (patient) => patient.created_at && now - new Date(patient.created_at).getTime() < WEEK_MS,
+  );
+  const studiesPerPatient = studies.reduce<Record<string, number>>((counts, study) => {
+    counts[study.patient.patient_id] = (counts[study.patient.patient_id] ?? 0) + 1;
+    return counts;
+  }, {});
+  const followUpPatients = Object.values(studiesPerPatient).filter((count) => count > 1).length;
+
+  const value = (count: number) => (isLoading ? "…" : String(count));
+
+  const summaryCards = [
+    {
+      label: "Studies",
+      value: value(studies.length),
+      detail: `${plural(unreportedStudies.length, "study", "studies")} without a report`,
+      icon: ScanLine,
+      path: "/studies",
+    },
+    {
+      label: "Patients",
+      value: value(patients.length),
+      detail: `${newPatients.length} added this week`,
+      icon: Users,
+      path: "/patients",
+    },
+    {
+      label: "Reports",
+      value: value(reports.length),
+      detail: `${plural(draftReports.length, "draft")} awaiting review`,
+      icon: FileText,
+      path: "/reports",
+    },
+    {
+      label: "AI Analyses",
+      value: "—",
+      detail: "AI not connected yet",
+      icon: Activity,
+      path: "/ai-chat",
+    },
+  ];
+
+  const recentStudies = [...studies]
+    .sort(
+      (a, b) =>
+        (b.study_date ?? "").localeCompare(a.study_date ?? "") ||
+        b.study_id.localeCompare(a.study_id),
+    )
+    .slice(0, 4)
+    .map((study) => {
+    const studyReports = reports.filter((report) => report.studyId === study.study_id);
+    const status = studyReports.some((report) => report.status === "Draft")
+      ? "Draft"
+      : studyReports.length > 0
+        ? "Reported"
+        : "No report";
+
+    return {
+      id: study.study_id,
+      patient: study.patient.full_name,
+      study: study.study_description || "Untitled study",
+      modality: study.modality || "—",
+      date: study.study_date
+        ? new Date(`${study.study_date.slice(0, 10)}T00:00:00`).toLocaleDateString()
+        : "Date unavailable",
+      status,
+    };
+  });
+
+  const attentionItems = [
+    {
+      title: "Reports awaiting review",
+      detail: `${plural(draftReports.length, "draft report")} ${
+        draftReports.length === 1 ? "needs" : "need"
+      } physician review`,
+      count: value(draftReports.length),
+      icon: FileText,
+      path: "/reports",
+    },
+    {
+      title: "Studies without a report",
+      detail: `${plural(unreportedStudies.length, "study", "studies")} not yet reported`,
+      count: value(unreportedStudies.length),
+      icon: AlertCircle,
+      path: "/studies",
+    },
+    {
+      title: "Follow-up studies",
+      detail: `${plural(followUpPatients, "patient")} with previous studies available`,
+      count: value(followUpPatients),
+      icon: CalendarDays,
+      path: "/patients",
+    },
+  ];
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#090b12]">
@@ -119,12 +195,18 @@ function DashboardPage() {
 
         <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/45">
           <CalendarDays size={15} />
-          October 6, 2026
+          {today}
         </div>
       </div>
 
       {/* Content */}
       <div className="min-h-0 flex-1 overflow-auto p-6">
+        {loadError && (
+          <div className="mb-5 rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-300">
+            {loadError}
+          </div>
+        )}
+
         {/* Summary cards */}
         <div className="grid grid-cols-4 gap-4">
           {summaryCards.map((card) => {
@@ -189,6 +271,12 @@ function DashboardPage() {
             </div>
 
             <div>
+              {!isLoading && recentStudies.length === 0 && (
+                <div className="px-5 py-10 text-center text-sm text-white/40">
+                  No studies yet.
+                </div>
+              )}
+
               {recentStudies.map((study) => (
                 <button
                   key={study.id}
@@ -298,7 +386,7 @@ function DashboardPage() {
           <div className="grid grid-cols-3 gap-3">
             <button
               onClick={() =>
-                navigate("/workspace/ST-00192")
+                navigate("/workspace")
               }
               className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition hover:border-white/15 hover:bg-white/[0.04]"
             >

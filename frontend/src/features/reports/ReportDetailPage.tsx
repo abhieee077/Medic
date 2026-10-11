@@ -7,114 +7,62 @@ import {
   Save,
   Unlock,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-
-type ReportStatus = "Draft" | "Finalized";
-
-type Report = {
-  id: string;
-  patient: string;
-  mrn: string;
-  studyId: string;
-  study: string;
-  modality: string;
-  createdAt: string;
-  updatedAt: string;
-  author: string;
-  status: ReportStatus;
-  findings: string;
-  impression: string;
-};
-
-const mockReports: Report[] = [
-  {
-    id: "RP-00124",
-    patient: "John Doe",
-    mrn: "MRN 987654",
-    studyId: "ST-00192",
-    study: "MRI Brain w/ Contrast",
-    modality: "MR",
-    createdAt: "Apr 20, 2025",
-    updatedAt: "Apr 20, 2025",
-    author: "Dr. Sarah Johnson",
-    status: "Finalized",
-    findings:
-      "No acute intracranial hemorrhage or mass effect. Mild scattered T2/FLAIR hyperintense foci are present within the periventricular white matter.",
-    impression:
-      "No acute intracranial abnormality. Mild nonspecific chronic white matter changes.",
-  },
-  {
-    id: "RP-00123",
-    patient: "Emily Carter",
-    mrn: "MRN 987655",
-    studyId: "ST-00191",
-    study: "CT Chest",
-    modality: "CT",
-    createdAt: "Apr 18, 2025",
-    updatedAt: "Apr 18, 2025",
-    author: "Dr. Sarah Johnson",
-    status: "Finalized",
-    findings:
-      "No focal airspace consolidation, pleural effusion, or pneumothorax. Cardiomediastinal silhouette is within normal limits.",
-    impression:
-      "No acute cardiopulmonary abnormality.",
-  },
-  {
-    id: "RP-00122",
-    patient: "Michael Wilson",
-    mrn: "MRN 987656",
-    studyId: "ST-00190",
-    study: "MRI Knee",
-    modality: "MR",
-    createdAt: "Apr 15, 2025",
-    updatedAt: "Apr 15, 2025",
-    author: "Dr. Sarah Johnson",
-    status: "Draft",
-    findings:
-      "Evaluation demonstrates mild joint effusion. There is increased signal involving the medial meniscus.",
-    impression:
-      "Findings suspicious for medial meniscal injury. Recommend correlation with clinical examination.",
-  },
-  {
-    id: "RP-00121",
-    patient: "Sophia Martinez",
-    mrn: "MRN 987657",
-    studyId: "ST-00189",
-    study: "CT Head",
-    modality: "CT",
-    createdAt: "Apr 11, 2025",
-    updatedAt: "Apr 11, 2025",
-    author: "Dr. Sarah Johnson",
-    status: "Draft",
-    findings:
-      "No acute intracranial hemorrhage, midline shift, or mass effect. Ventricular system is within normal limits.",
-    impression: "No acute intracranial abnormality.",
-  },
-];
+import { fetchReports, formatDate, type Report } from "./reportApi";
 
 function ReportDetailPage() {
   const navigate = useNavigate();
   const { reportId } = useParams();
 
-  const initialReport = useMemo(
-    () => mockReports.find((report) => report.id === reportId),
-    [reportId],
-  );
-
-  const [report, setReport] = useState<Report | null>(
-    initialReport ?? null,
-  );
-
-  const [findings, setFindings] = useState(
-    initialReport?.findings ?? "",
-  );
-
-  const [impression, setImpression] = useState(
-    initialReport?.impression ?? "",
-  );
-
+  const [report, setReport] = useState<Report | null>(null);
+  const [findings, setFindings] = useState("");
+  const [impression, setImpression] = useState("");
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadReport() {
+      setLoading(true);
+      setLoadError("");
+
+      try {
+        const reports = await fetchReports();
+        const mapped = reports.find((item) => item.id === reportId);
+
+        if (!mapped) {
+          if (!cancelled) setLoadError("Report not found in the database.");
+          return;
+        }
+
+        if (!cancelled) {
+          setReport(mapped);
+          setFindings(mapped.findings);
+          setImpression(mapped.impression);
+        }
+      } catch (error) {
+        console.error("Could not load report:", error);
+        if (!cancelled) setLoadError("Could not load report. Check the backend.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadReport();
+    return () => {
+      cancelled = true;
+    };
+  }, [reportId]);
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center bg-[#090b12] text-sm text-white/50">
+        Loading report...
+      </div>
+    );
+  }
 
   if (!report) {
     return (
@@ -122,15 +70,10 @@ function ReportDetailPage() {
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.04] text-white/30">
           <FileText size={21} />
         </div>
-
-        <h1 className="text-base font-semibold text-white">
-          Report not found
-        </h1>
-
+        <h1 className="text-base font-semibold text-white">Report not found</h1>
         <p className="mt-1 max-w-sm text-sm text-white/35">
-          The requested report does not exist in the current workspace.
+          {loadError || "The requested report does not exist in the current workspace."}
         </p>
-
         <button
           onClick={() => navigate("/reports")}
           className="mt-5 flex h-9 items-center gap-2 rounded-xl border border-white/10 px-4 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
@@ -144,38 +87,99 @@ function ReportDetailPage() {
 
   const isFinalized = report.status === "Finalized";
 
-  const saveDraft = () => {
-    setReport((current) =>
-      current
-        ? {
-            ...current,
-            findings,
-            impression,
-            updatedAt: "Just now",
-          }
-        : current,
-    );
+  const saveDraft = async () => {
+    setSaved(false);
 
-    setSaved(true);
+    try {
+      const response = await fetch("/api/v1/reports/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          study_id: report.studyId,
+          findings,
+          impression,
+        }),
+      });
 
-    window.setTimeout(() => {
-      setSaved(false);
-    }, 1800);
+      if (!response.ok) {
+        throw new Error(`Save failed (${response.status}): ${await response.text()}`);
+      }
+
+      const result = await response.json();
+
+      setReport((current) =>
+        current
+          ? {
+              ...current,
+              findings,
+              impression,
+              updatedAt: formatDate(result.updated_at),
+              status: "Draft",
+            }
+          : current,
+      );
+
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1800);
+    } catch (error) {
+      console.error("Could not save report:", error);
+      window.alert("Could not save the report. Please check the backend and try again.");
+    }
   };
 
-  const toggleFinalize = () => {
-    setReport((current) =>
-      current
-        ? {
-            ...current,
-            findings,
-            impression,
-            status:
-              current.status === "Finalized" ? "Draft" : "Finalized",
-            updatedAt: "Just now",
-          }
-        : current,
+  const toggleFinalize = async () => {
+    const reopening = isFinalized;
+
+    const confirmed = window.confirm(
+      reopening
+        ? "Reopen this finalized report as a draft?"
+        : "Finalize this report? You will not be able to save it as a draft afterward.",
     );
+
+    if (!confirmed) return;
+
+    try {
+      const endpoint = reopening
+        ? `/api/v1/reports/${encodeURIComponent(report.id)}/reopen`
+        : `/api/v1/reports/${encodeURIComponent(report.id)}/finalize`;
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        ...(reopening ? {} : { body: JSON.stringify({ findings, impression }) }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(`Report update failed (${response.status}): ${message}`);
+      }
+
+      const result = await response.json();
+
+      setReport((current) =>
+        current
+          ? {
+              ...current,
+              findings: result.findings ?? findings,
+              impression: result.impression ?? impression,
+              status: reopening ? "Draft" : "Finalized",
+              updatedAt: formatDate(result.updated_at),
+            }
+          : current,
+      );
+
+      if (reopening) {
+        setFindings(result.findings ?? findings);
+        setImpression(result.impression ?? impression);
+      }
+    } catch (error) {
+      console.error("Could not update report status:", error);
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : "Could not update the report. Please try again.",
+      );
+    }
   };
 
   return (
@@ -323,9 +327,18 @@ function ReportDetailPage() {
                     Patient
                   </div>
 
-                  <div className="mt-1 text-sm text-white/75">
-                    {report.patient}
-                  </div>
+                  {report.patientId ? (
+                    <button
+                      onClick={() => navigate(`/patients/${report.patientId}`)}
+                      className="mt-1 text-left text-sm text-[#a990ff] transition hover:text-[#c0b2ff]"
+                    >
+                      {report.patient}
+                    </button>
+                  ) : (
+                    <div className="mt-1 text-sm text-white/75">
+                      {report.patient}
+                    </div>
+                  )}
 
                   <div className="mt-0.5 text-xs text-white/35">
                     {report.mrn}
