@@ -1,6 +1,8 @@
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import dicom
 from app.api.router import api_router
 
 app = FastAPI(
@@ -19,10 +21,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Existing patient, study, and API status routes.
 app.include_router(
     api_router,
     prefix="/api/v1",
 )
+
+# DICOM routes at the root, for OHIF.
+app.include_router(dicom.router)
 
 
 @app.get("/health")

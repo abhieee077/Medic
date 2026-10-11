@@ -1,9 +1,9 @@
+
 from fastapi import APIRouter
 
 from app.api.v1 import patients, studies
 
 api_router = APIRouter()
-
 
 api_router.include_router(patients.router)
 api_router.include_router(studies.router)
