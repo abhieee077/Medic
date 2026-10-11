@@ -1,11 +1,12 @@
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.demo import DEMO_AUTHOR_ID
 from database.models import Patient, Report, Study
 from database.session import SessionLocal
 
@@ -14,9 +15,6 @@ router = APIRouter(
     prefix="/reports",
     tags=["Reports"],
 )
-
-# Development-only author created for the Medic demo.
-DEMO_AUTHOR_ID = UUID("c84708d4-370d-4f75-bb5f-b3d4c06e237d")
 
 
 def get_db():
@@ -198,24 +196,35 @@ def get_study_draft(
     }
 
 
-@router.get("/")
-def list_reports(db: Session = Depends(get_db)):
-    rows = db.execute(
+def _report_with_details(report: Report, study: Study, patient: Patient) -> dict:
+    return {
+        **report_to_dict(report),
+        "study_id": study.study_id,
+        "study_description": study.study_description,
+        "modality": study.modality,
+        "patient_id": patient.patient_id,
+        "patient_name": f"{patient.first_name} {patient.last_name}",
+        "mrn": patient.mrn,
+    }
+
+
+def _reports_query():
+    return (
         select(Report, Study, Patient)
         .join(Study, Report.study_id == Study.id)
         .join(Patient, Study.patient_id == Patient.id)
-        .order_by(Report.updated_at.desc())
-    ).all()
+    )
 
-    return [
-        {
-            **report_to_dict(report),
-            "study_id": study.study_id,
-            "study_description": study.study_description,
-            "modality": study.modality,
-            "patient_id": patient.patient_id,
-            "patient_name": f"{patient.first_name} {patient.last_name}",
-            "mrn": patient.mrn,
-        }
-        for report, study, patient in rows
-    ]
+
+@router.get("/")
+def list_reports(db: Session = Depends(get_db)):
+    rows = db.execute(_reports_query().order_by(Report.updated_at.desc())).all()
+    return [_report_with_details(*row) for row in rows]
+
+
+@router.get("/{report_id}")
+def get_report(report_id: str, db: Session = Depends(get_db)):
+    row = db.execute(_reports_query().where(Report.report_id == report_id)).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return _report_with_details(*row)

@@ -1,5 +1,5 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from database.models import DicomInstance, Patient, Series, Study
@@ -52,9 +52,27 @@ def get_studies(db: Session = Depends(get_db)):
         .order_by(Study.study_id)
     ).all()
 
+    # Series and image counts for every study in one grouped query.
+    counts = {
+        study_id: (series_count, instance_count)
+        for study_id, series_count, instance_count in db.execute(
+            select(
+                Series.study_id,
+                func.count(func.distinct(Series.id)),
+                func.count(DicomInstance.id),
+            )
+            .outerjoin(DicomInstance, DicomInstance.series_id == Series.id)
+            .group_by(Series.study_id)
+        ).all()
+    }
+
     return {
         "items": [
-            study_to_dict(study, patient)
+            {
+                **study_to_dict(study, patient),
+                "series_count": counts.get(study.id, (0, 0))[0],
+                "instance_count": counts.get(study.id, (0, 0))[1],
+            }
             for study, patient in results
         ],
         "total": len(results),
