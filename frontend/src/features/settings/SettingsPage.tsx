@@ -1,7 +1,6 @@
 import {
   Bell,
   Check,
-  ChevronRight,
   Monitor,
   Moon,
   Shield,
@@ -34,18 +33,32 @@ function Toggle({
   );
 }
 
+const SETTINGS_KEY = "medic.settings";
+
+const defaultSettings = {
+  compactMode: false,
+  aiSuggestions: true,
+  notifications: true,
+  reportNotifications: true,
+  studyNotifications: true,
+  emailNotifications: false,
+  autoSave: true,
+};
+
+// Preferences are per-browser until user accounts exist.
+function loadSettings(): typeof defaultSettings {
+  try {
+    const stored = window.localStorage.getItem(SETTINGS_KEY);
+    return stored ? { ...defaultSettings, ...JSON.parse(stored) } : defaultSettings;
+  } catch {
+    return defaultSettings;
+  }
+}
+
 function SettingsPage() {
   const [saved, setSaved] = useState(false);
 
-  const [settings, setSettings] = useState({
-    compactMode: false,
-    aiSuggestions: true,
-    notifications: true,
-    reportNotifications: true,
-    studyNotifications: true,
-    emailNotifications: false,
-    autoSave: true,
-  });
+  const [settings, setSettings] = useState(loadSettings);
 
   const update = (key: keyof typeof settings) => {
     setSettings((current) => ({
@@ -57,6 +70,11 @@ function SettingsPage() {
   };
 
   const saveSettings = () => {
+    try {
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // Storage can be unavailable (private mode); the toggles still apply.
+    }
     setSaved(true);
 
     window.setTimeout(() => {
@@ -104,7 +122,7 @@ function SettingsPage() {
                 </label>
 
                 <input
-                  value="Dr. Sarah Johnson"
+                  value="Demo Radiologist"
                   readOnly
                   className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white/65 outline-none"
                 />
@@ -128,7 +146,7 @@ function SettingsPage() {
                 </label>
 
                 <input
-                  value="sarah.johnson@medsight.local"
+                  value="Not set (user accounts are not set up yet)"
                   readOnly
                   className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-white/[0.025] px-3 text-sm text-white/65 outline-none"
                 />
@@ -333,31 +351,27 @@ function SettingsPage() {
             </div>
 
             <div className="divide-y divide-white/[0.06]">
-              <button className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-white/[0.02]">
+              <div className="flex w-full items-center justify-between px-5 py-4">
                 <div>
                   <div className="text-sm text-white/70">
                     Active sessions
                   </div>
                   <div className="mt-1 text-xs text-white/30">
-                    Review devices currently signed into your account.
+                    Not available yet: Medic runs as a single local demo user without sign-in.
                   </div>
                 </div>
+              </div>
 
-                <ChevronRight size={16} className="text-white/20" />
-              </button>
-
-              <button className="flex w-full items-center justify-between px-5 py-4 text-left transition hover:bg-white/[0.02]">
+              <div className="flex w-full items-center justify-between px-5 py-4">
                 <div>
                   <div className="text-sm text-white/70">
                     Authentication
                   </div>
                   <div className="mt-1 text-xs text-white/30">
-                    Manage authentication and account security.
+                    Not available yet: Medic runs as a single local demo user without sign-in.
                   </div>
                 </div>
-
-                <ChevronRight size={16} className="text-white/20" />
-              </button>
+              </div>
             </div>
           </section>
 
@@ -366,7 +380,7 @@ function SettingsPage() {
             {saved && (
               <div className="flex items-center gap-2 text-xs text-emerald-300">
                 <Check size={14} />
-                Settings saved
+                Saved in this browser
               </div>
             )}
 

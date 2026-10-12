@@ -7,7 +7,6 @@ import {
   ChevronRight,
   ExternalLink,
   Maximize2,
-  MoreHorizontal,
   RotateCcw,
   Send,
   Sparkles,
@@ -824,12 +823,6 @@ function Workspace() {
                   </span>
                 </div>
 
-                <button
-                  className="rounded-lg border border-white/10 bg-[#11141c]/90 p-2 text-white/45 transition hover:text-white"
-                  title="More viewer options"
-                >
-                  <MoreHorizontal size={17} />
-                </button>
               </div>
 
               {/* Series selector */}
@@ -1023,12 +1016,6 @@ function Workspace() {
                 </div>
               </div>
 
-              <button
-                className="ml-auto text-white/30 hover:text-white"
-                title="AI options"
-              >
-                <MoreHorizontal size={17} />
-              </button>
             </div>
 
             {/* AI Content */}

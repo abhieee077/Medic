@@ -24,3 +24,7 @@ coverage/
 
 # Local server logs from scripts/start-medic.ps1
 logs/
+
+# Python bytecode
+__pycache__/
+*.pyc

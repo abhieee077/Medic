@@ -26,7 +26,7 @@ type SearchResult = {
   icon: typeof Users;
 };
 
-async function loadSearchIndex(): Promise<{ results: SearchResult[]; draftCount: number }> {
+async function loadSearchIndex(): Promise<{ results: SearchResult[]; draftCount: number; unreportedCount: number }> {
   const [patientsResponse, studiesResponse, reports] = await Promise.all([
     fetch("/api/v1/patients/"),
     fetch("/api/v1/studies/"),
@@ -68,6 +68,9 @@ async function loadSearchIndex(): Promise<{ results: SearchResult[]; draftCount:
   return {
     results,
     draftCount: reports.filter((report) => report.status === "Draft").length,
+    unreportedCount: studies.filter(
+      (study) => !reports.some((report) => report.studyId === study.study_id),
+    ).length,
   };
 }
 
@@ -76,6 +79,9 @@ function Topbar() {
 
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [draftCount, setDraftCount] = useState<number | null>(null);
+  const [unreportedCount, setUnreportedCount] = useState<number | null>(null);
+  const attentionCount =
+    draftCount === null ? null : (draftCount > 0 ? 1 : 0) + ((unreportedCount ?? 0) > 0 ? 1 : 0);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -106,9 +112,10 @@ function Topbar() {
 
   function refreshSearchIndex() {
     loadSearchIndex()
-      .then(({ results, draftCount: drafts }) => {
+      .then(({ results, draftCount: drafts, unreportedCount: unreported }) => {
         setSearchResults(results);
         setDraftCount(drafts);
+        setUnreportedCount(unreported);
       })
       .catch((error) => console.error("Could not load search index:", error));
   }
@@ -116,10 +123,11 @@ function Topbar() {
   useEffect(() => {
     let cancelled = false;
     loadSearchIndex()
-      .then(({ results, draftCount: drafts }) => {
+      .then(({ results, draftCount: drafts, unreportedCount: unreported }) => {
         if (cancelled) return;
         setSearchResults(results);
         setDraftCount(drafts);
+        setUnreportedCount(unreported);
       })
       .catch((error) => console.error("Could not load search index:", error));
     return () => {
@@ -269,7 +277,8 @@ function Topbar() {
       <div className="flex items-center gap-4">
         {/* Upload Study */}
         <button
-          onClick={() => navigate("/studies")}
+          onClick={() => navigate("/studies?import=1")}
+          title="Import studies from Orthanc"
           className="flex h-10 items-center gap-2 rounded-xl bg-[#7047ff] px-4 text-sm font-medium text-white transition hover:bg-[#805cff]"
         >
           <Upload size={17} />
@@ -289,9 +298,11 @@ function Topbar() {
           >
             <Bell size={19} />
 
-            <span className="absolute right-2 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#7047ff] px-1 text-[9px] font-semibold text-white">
-              3
-            </span>
+            {attentionCount ? (
+              <span className="absolute right-2 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#7047ff] px-1 text-[9px] font-semibold text-white">
+                {attentionCount}
+              </span>
+            ) : null}
           </button>
 
           {notificationsOpen && (
@@ -303,13 +314,13 @@ function Topbar() {
                   </div>
 
                   <div className="mt-0.5 text-[11px] text-white/35">
-                    3 items need attention
+                    {attentionCount === null
+                      ? "Loading..."
+                      : attentionCount === 0
+                        ? "Nothing needs attention"
+                        : `${attentionCount} ${attentionCount === 1 ? "item needs" : "items need"} attention`}
                   </div>
                 </div>
-
-                <span className="rounded-full bg-[#7047ff]/15 px-2 py-1 text-[10px] font-medium text-[#a991ff]">
-                  3 new
-                </span>
               </div>
 
               <div className="p-2">
@@ -350,7 +361,9 @@ function Topbar() {
 
                   <div>
                     <div className="text-sm text-white">
-                      6 studies pending analysis
+                      {unreportedCount === null
+                        ? "Studies without a report"
+                        : `${unreportedCount} ${unreportedCount === 1 ? "study" : "studies"} without a report`}
                     </div>
 
                     <div className="mt-1 text-[11px] text-white/35">
@@ -372,7 +385,7 @@ function Topbar() {
 
                   <div>
                     <div className="text-sm text-white">
-                      3 follow-up studies
+                      Recent activity
                     </div>
 
                     <div className="mt-1 text-[11px] text-white/35">
@@ -463,12 +476,12 @@ function Topbar() {
             className="flex items-center gap-3 rounded-xl px-2 py-1 transition hover:bg-white/5"
           >
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#7047ff] text-sm font-semibold text-white">
-              SJ
+              DR
             </div>
 
             <div className="text-left">
               <div className="text-sm font-medium text-white">
-                Dr. Sarah Johnson
+                Demo Radiologist
               </div>
 
               <div className="text-[11px] text-white/40">
@@ -488,7 +501,7 @@ function Topbar() {
             <div className="absolute right-0 top-12 z-50 w-[240px] overflow-hidden rounded-xl border border-white/10 bg-[#11141d] shadow-2xl shadow-black/40">
               <div className="border-b border-white/10 px-4 py-3">
                 <div className="text-sm font-semibold text-white">
-                  Dr. Sarah Johnson
+                  Demo Radiologist
                 </div>
 
                 <div className="mt-1 text-[11px] text-white/35">
@@ -509,11 +522,12 @@ function Topbar() {
                 </button>
 
                 <button
-                  onClick={() => setProfileOpen(false)}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-white/65 transition hover:bg-white/5 hover:text-white"
+                  disabled
+                  title="Sign-in isn't set up yet; Medic runs as a single demo user."
+                  className="flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-white/30"
                 >
                   <LogOut size={16} />
-                  Sign out
+                  Sign out (no accounts yet)
                 </button>
               </div>
             </div>

@@ -42,7 +42,7 @@ Each application table uses a UUID primary key.
 Application-facing identifiers are stored separately from UUID primary keys. Examples include:
 - Patient ID: `PT-00124`
 - Study ID: `ST-00192`
-- Report ID: values such as `RP-00124`
+- Report ID: values such as `R-913F60AAAD0F` (`R-` plus 12 hex characters)
 
 Other identifiers have distinct purposes:
 - MRN identifies a patient within the institution's data context.

@@ -47,7 +47,7 @@ export function mapReport(row: ApiReport): Report {
     modality: row.modality ?? "—",
     createdAt: formatDate(row.created_at),
     updatedAt: formatDate(row.updated_at),
-    author: "Medic Demo",
+    author: "Demo Radiologist",
     status: String(row.status).toUpperCase() === "FINALIZED" ? "Finalized" : "Draft",
     findings: row.findings ?? "",
     impression: row.impression ?? "",

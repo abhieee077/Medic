@@ -4,6 +4,21 @@ import Workspace from "./pages/Workspace";
 
 // One Workspace instance per study, so results that arrive after switching
 // studies (AI analysis, chat replies, saves) can't land in the new study.
+function NotFoundPage() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center bg-[#090b12] px-6 text-center">
+      <h1 className="text-base font-semibold text-white">Page not found</h1>
+      <p className="mt-1 text-sm text-white/35">This address doesn't match any page in Medic.</p>
+      <a
+        href="/dashboard"
+        className="mt-5 rounded-xl border border-white/10 px-4 py-2 text-sm text-white/60 transition hover:bg-white/5 hover:text-white"
+      >
+        Go to Dashboard
+      </a>
+    </div>
+  );
+}
+
 function WorkspaceRoute() {
   const { studyId } = useParams();
   return <Workspace key={studyId ?? "default"} />;
@@ -109,6 +124,8 @@ function App() {
             path="/settings"
             element={<SettingsPage />}
           />
+
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </AppShell>
     </BrowserRouter>

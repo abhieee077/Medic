@@ -11,7 +11,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 type ApiStudy = {
   id: string;
@@ -256,6 +256,17 @@ function StudiesPage() {
   useEffect(() => {
     void loadStudies();
   }, [loadStudies]);
+
+  // Topbar "Upload Study" links here with ?import=1.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("import") === "1") {
+      setSearchParams({}, { replace: true });
+      setIsImportOpen(true);
+      void loadImportPreview();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const openImportDialog = () => {
     setIsImportOpen(true);

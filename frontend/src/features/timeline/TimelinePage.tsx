@@ -4,104 +4,131 @@ import {
   Clock3,
   FileText,
   Filter,
-  FolderOpen,
   Search,
-  Upload,
+  Sparkles,
   UserRound,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 type TimelineEvent = {
   id: string;
-  type: "study" | "report" | "patient" | "upload";
+  type: "report" | "patient" | "ai";
   title: string;
   description: string;
   patient: string;
   studyId?: string;
+  path: string;
+  at: Date;
   date: string;
   time: string;
 };
 
-const events: TimelineEvent[] = [
-  {
-    id: "EV-001",
-    type: "report",
-    title: "Report finalized",
-    description: "MRI Brain w/ Contrast report finalized",
-    patient: "John Doe",
-    studyId: "ST-00192",
-    date: "Apr 20, 2025",
-    time: "10:42 AM",
-  },
-  {
-    id: "EV-002",
-    type: "study",
-    title: "Study analyzed",
-    description: "AI analysis completed for MRI Brain w/ Contrast",
-    patient: "John Doe",
-    studyId: "ST-00192",
-    date: "Apr 20, 2025",
-    time: "10:18 AM",
-  },
-  {
-    id: "EV-003",
-    type: "upload",
-    title: "Study uploaded",
-    description: "MRI Brain w/ Contrast uploaded to workspace",
-    patient: "John Doe",
-    studyId: "ST-00192",
-    date: "Apr 20, 2025",
-    time: "9:56 AM",
-  },
-  {
-    id: "EV-004",
-    type: "study",
-    title: "Study analyzed",
-    description: "CT Chest analysis completed",
-    patient: "Emily Carter",
-    studyId: "ST-00191",
-    date: "Apr 18, 2025",
-    time: "3:21 PM",
-  },
-  {
-    id: "EV-005",
-    type: "report",
-    title: "Report finalized",
-    description: "CT Chest report finalized",
-    patient: "Emily Carter",
-    studyId: "ST-00191",
-    date: "Apr 18, 2025",
-    time: "3:45 PM",
-  },
-  {
-    id: "EV-006",
-    type: "patient",
-    title: "Patient added",
-    description: "New patient record created",
-    patient: "Sophia Martinez",
-    date: "Apr 11, 2025",
-    time: "11:05 AM",
-  },
-  {
-    id: "EV-007",
-    type: "upload",
-    title: "Study uploaded",
-    description: "CT Head uploaded to workspace",
-    patient: "Sophia Martinez",
-    studyId: "ST-00189",
-    date: "Apr 11, 2025",
-    time: "11:18 AM",
-  },
-];
+function makeEvent(
+  base: Omit<TimelineEvent, "at" | "date" | "time">,
+  iso: string | null | undefined,
+): TimelineEvent | null {
+  if (!iso) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  return {
+    ...base,
+    at,
+    date: at.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }),
+    time: at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  };
+}
+
+async function loadEvents(): Promise<TimelineEvent[]> {
+  const get = (path: string) =>
+    fetch(path).then((response) => {
+      if (!response.ok) throw new Error(`${path} failed (${response.status})`);
+      return response.json();
+    });
+
+  const [patients, reports, conversations] = await Promise.all([
+    get("/api/v1/patients/"),
+    get("/api/v1/reports/"),
+    get("/api/v1/ai/conversations").catch(() => ({ items: [] })),
+  ]);
+
+  const events: (TimelineEvent | null)[] = [];
+
+  for (const patient of patients.items ?? []) {
+    events.push(
+      makeEvent(
+        {
+          id: `patient-${patient.patient_id}`,
+          type: "patient",
+          title: "Patient added",
+          description: `${patient.full_name} · MRN ${patient.mrn}`,
+          patient: patient.full_name,
+          path: `/patients/${patient.patient_id}`,
+        },
+        patient.created_at,
+      ),
+    );
+  }
+
+  for (const report of reports ?? []) {
+    const common = {
+      type: "report" as const,
+      patient: report.patient_name ?? "Unknown patient",
+      studyId: report.study_id,
+      path: `/reports/${report.report_id}`,
+    };
+    events.push(
+      makeEvent(
+        {
+          ...common,
+          id: `report-created-${report.report_id}`,
+          title: "Report draft created",
+          description: `${report.report_id} · ${report.study_description ?? report.study_id}`,
+        },
+        report.created_at,
+      ),
+    );
+    events.push(
+      makeEvent(
+        {
+          ...common,
+          id: `report-finalized-${report.report_id}`,
+          title: "Report finalized",
+          description: `${report.report_id} · ${report.study_description ?? report.study_id}`,
+        },
+        report.finalized_at,
+      ),
+    );
+  }
+
+  for (const conversation of conversations.items ?? []) {
+    events.push(
+      makeEvent(
+        {
+          id: `ai-${conversation.id}`,
+          type: "ai",
+          title: "AI conversation",
+          description: conversation.title,
+          patient: conversation.patient_name ?? "No study linked",
+          studyId: conversation.study_id ?? undefined,
+          path: `/ai-chat/${conversation.id}`,
+        },
+        conversation.created_at,
+      ),
+    );
+  }
+
+  return events
+    .filter((event): event is TimelineEvent => event !== null)
+    .sort((a, b) => b.at.getTime() - a.at.getTime());
+}
 
 const filters = [
   { label: "All events", value: "all" },
-  { label: "Studies", value: "study" },
   { label: "Reports", value: "report" },
   { label: "Patients", value: "patient" },
-  { label: "Uploads", value: "upload" },
+  { label: "AI", value: "ai" },
 ];
 
 function TimelinePage() {
@@ -109,6 +136,26 @@ function TimelinePage() {
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    loadEvents()
+      .then((items) => {
+        if (!cancelled) setEvents(items);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load activity. Check that the backend is running.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredEvents = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -126,7 +173,7 @@ function TimelinePage() {
 
       return matchesFilter && matchesSearch;
     });
-  }, [filter, search]);
+  }, [events, filter, search]);
 
   const grouped = useMemo(() => {
     return filteredEvents.reduce<Record<string, TimelineEvent[]>>(
@@ -140,10 +187,9 @@ function TimelinePage() {
   }, [filteredEvents]);
 
   const iconFor = (type: TimelineEvent["type"]) => {
-    if (type === "study") return FolderOpen;
     if (type === "report") return FileText;
     if (type === "patient") return UserRound;
-    return Upload;
+    return Sparkles;
   };
 
   return (
@@ -209,7 +255,15 @@ function TimelinePage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
         <div className="mx-auto max-w-4xl">
-          {filteredEvents.length === 0 ? (
+          {error && (
+            <div className="mb-4 rounded-xl border border-red-400/20 bg-red-400/5 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <p className="py-12 text-center text-sm text-white/40">Loading activity...</p>
+          ) : filteredEvents.length === 0 ? (
             <div className="flex min-h-[45vh] flex-col items-center justify-center text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.04] text-white/25">
                 <CalendarDays size={20} />
@@ -249,15 +303,7 @@ function TimelinePage() {
                           </div>
 
                           <button
-                            onClick={() => {
-                              if (event.studyId) {
-                                navigate(
-                                  `/studies/${event.studyId}`,
-                                );
-                              } else {
-                                navigate("/patients");
-                              }
-                            }}
+                            onClick={() => navigate(event.path)}
                             className="w-full rounded-2xl border border-white/10 bg-[#0d1018] p-4 text-left transition hover:border-white/15 hover:bg-white/[0.025]"
                           >
                             <div className="flex items-start justify-between gap-4">
@@ -267,7 +313,7 @@ function TimelinePage() {
                                     {event.title}
                                   </h3>
 
-                                  {event.type === "report" && (
+                                                  {event.title === "Report finalized" && (
                                     <CheckCircle2
                                       size={13}
                                       className="text-emerald-400/70"
