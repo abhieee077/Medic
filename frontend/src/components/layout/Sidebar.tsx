@@ -8,22 +8,22 @@ import {
   Clock3,
   Settings,
 } from "lucide-react";
+import { NavLink } from "react-router-dom";
 
 const navigation = [
-  { label: "Dashboard", icon: LayoutDashboard },
-  { label: "Patients", icon: Users },
-  { label: "Studies", icon: FolderOpen },
-  { label: "Workspace", icon: Monitor, active: true },
-  { label: "Reports", icon: FileText },
-  { label: "AI Chat", icon: MessageSquare },
-  { label: "Timeline", icon: Clock3 },
-  { label: "Settings", icon: Settings },
+  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  { label: "Patients", icon: Users, path: "/patients" },
+  { label: "Studies", icon: FolderOpen, path: "/studies" },
+  { label: "Workspace", icon: Monitor, path: "/workspace" },
+  { label: "Reports", icon: FileText, path: "/reports" },
+  { label: "AI Chat", icon: MessageSquare, path: "/ai-chat" },
+  { label: "Timeline", icon: Clock3, path: "/timeline" },
+  { label: "Settings", icon: Settings, path: "/settings" },
 ];
 
 function Sidebar() {
   return (
     <aside className="flex h-screen w-[240px] flex-col border-r border-white/10 bg-[#0d1018] px-3 py-4">
-      
       {/* Logo */}
       <div className="mb-8 flex items-center gap-3 px-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#7047ff] text-lg font-bold text-white">
@@ -47,30 +47,37 @@ function Sidebar() {
           const Icon = item.icon;
 
           return (
-            <button
+            <NavLink
               key={item.label}
-              className={`group flex h-11 items-center gap-3 rounded-xl px-3 text-sm transition ${
-                item.active
-                  ? "bg-[#7047ff]/20 text-white"
-                  : "text-white/55 hover:bg-white/5 hover:text-white"
-              }`}
+              to={item.path}
+              className={({ isActive }) =>
+                `group flex h-11 items-center gap-3 rounded-xl px-3 text-sm transition ${
+                  isActive
+                    ? "bg-[#7047ff]/20 text-white"
+                    : "text-white/55 hover:bg-white/5 hover:text-white"
+                }`
+              }
             >
-              <Icon
-                size={19}
-                strokeWidth={1.8}
-                className={
-                  item.active
-                    ? "text-[#9b7cff]"
-                    : "text-white/45 group-hover:text-white"
-                }
-              />
+              {({ isActive }) => (
+                <>
+                  <Icon
+                    size={19}
+                    strokeWidth={1.8}
+                    className={
+                      isActive
+                        ? "text-[#9b7cff]"
+                        : "text-white/45 group-hover:text-white"
+                    }
+                  />
 
-              <span>{item.label}</span>
+                  <span>{item.label}</span>
 
-              {item.active && (
-                <span className="ml-auto h-5 w-1 rounded-full bg-[#7047ff]" />
+                  {isActive && (
+                    <span className="ml-auto h-5 w-1 rounded-full bg-[#7047ff]" />
+                  )}
+                </>
               )}
-            </button>
+            </NavLink>
           );
         })}
       </nav>

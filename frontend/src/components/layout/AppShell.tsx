@@ -1,8 +1,12 @@
+import type { ReactNode } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
-import Workspace from "../../pages/Workspace";
 
-function AppShell() {
+type AppShellProps = {
+  children: ReactNode;
+};
+
+function AppShell({ children }: AppShellProps) {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#090b12] text-white">
       <Sidebar />
@@ -11,7 +15,7 @@ function AppShell() {
         <Topbar />
 
         <main className="min-h-0 flex-1 overflow-hidden">
-          <Workspace />
+          {children}
         </main>
       </div>
     </div>
