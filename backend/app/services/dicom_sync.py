@@ -92,7 +92,21 @@ def _parse_int(value):
 
 
 def fetch_orthanc_studies() -> list[dict]:
-    """Read study, series, and instance metadata from Orthanc."""
+    """Read study and series metadata from Orthanc."""
+    # Fail within seconds when Orthanc is unreachable, instead of letting the
+    # retrying session wait out every timeout.
+    try:
+        requests.get(
+            f"{ORTHANC_URL}/system",
+            auth=(ORTHANC_USERNAME, ORTHANC_PASSWORD),
+            timeout=(3, 5),
+        ).raise_for_status()
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not connect to the Orthanc server.",
+        ) from error
+
     study_ids = orthanc_json("studies")
     if not isinstance(study_ids, list):
         raise HTTPException(

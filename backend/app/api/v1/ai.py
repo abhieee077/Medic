@@ -206,9 +206,14 @@ def analyze_study(study_id: str, db: Session = Depends(get_db)):
             f"({series.number_of_instances or len(instance_ids)} images total)."
         )
         result = provider.analyze_study(images, context)
-    except (AIError, HTTPException) as error:
-        message = error.message if isinstance(error, AIError) else str(error.detail)
-        status_code = error.status_code
+    except Exception as error:
+        if isinstance(error, AIError):
+            message, status_code = error.message, error.status_code
+        elif isinstance(error, HTTPException):
+            message, status_code = str(error.detail), error.status_code
+        else:
+            message, status_code = "The AI analysis failed unexpectedly.", 500
+        db.rollback()
         analysis.status = "FAILED"
         analysis.error_message = message
         analysis.completed_at = _now()

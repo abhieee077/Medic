@@ -1,7 +1,9 @@
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DataError
 
 from app.api import dicom
 from app.api.router import api_router
@@ -39,6 +41,12 @@ app.include_router(
 
 # DICOM routes at the root, for OHIF.
 app.include_router(dicom.router)
+
+
+@app.exception_handler(DataError)
+def invalid_data_handler(request: Request, exc: DataError):
+    # e.g. a value PostgreSQL can't store (NUL byte, out-of-range input).
+    return JSONResponse(status_code=400, content={"detail": "Invalid input."})
 
 
 @app.get("/health")

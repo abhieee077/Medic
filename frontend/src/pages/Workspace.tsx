@@ -14,7 +14,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { OHIF_URL, ohifViewerUrl } from "../features/viewer/ohif";
 import { fetchReports } from "../features/reports/reportApi";
@@ -159,6 +159,17 @@ function Workspace() {
 
   const [findings, setFindings] = useState("");
   const [impression, setImpression] = useState("");
+  const [draftLoading, setDraftLoading] = useState(true);
+  const [draftLoadError, setDraftLoadError] = useState("");
+
+  // Handlers that finish after an await read the editor through these refs,
+  // so they see what the user typed in the meantime.
+  const findingsRef = useRef(findings);
+  const impressionRef = useRef(impression);
+  useEffect(() => {
+    findingsRef.current = findings;
+    impressionRef.current = impression;
+  }, [findings, impression]);
 
   // Set when the study has no draft but already has a finalized report.
   const [finalizedReportId, setFinalizedReportId] = useState<string | null>(null);
@@ -294,6 +305,8 @@ function Workspace() {
       setImpression("");
       setSaved(false);
       setFinalizedReportId(null);
+      setDraftLoading(true);
+      setDraftLoadError("");
 
       try {
         const response = await fetch(
@@ -318,6 +331,10 @@ function Workspace() {
         }
       } catch (error) {
         console.error("Could not load report draft:", error);
+        // Saving now could overwrite a draft that exists but failed to load.
+        if (!cancelled) setDraftLoadError("Could not load this study's draft. Reload before editing.");
+      } finally {
+        if (!cancelled) setDraftLoading(false);
       }
     }
 
@@ -345,6 +362,18 @@ function Workspace() {
   };
 
   const aiReady = Boolean(aiStatus?.configured);
+
+  // The status request may still be in flight right after the page loads.
+  const ensureAiReady = async () => {
+    if (aiStatus) return aiStatus.configured;
+    try {
+      const status = await getAiStatus();
+      setAiStatus(status);
+      return status.configured;
+    } catch {
+      return false;
+    }
+  };
   const AI_NOT_CONFIGURED =
     "AI is not configured. Restart the backend with an Anthropic API key (scripts\\start-medic.ps1).";
 
@@ -352,7 +381,7 @@ function Workspace() {
   // the physician clicks Insert.
   const runAnalysis = async (): Promise<AiAnalysis | null> => {
     if (!study) return null;
-    if (!aiReady) {
+    if (!(await ensureAiReady())) {
       setAiError(AI_NOT_CONFIGURED);
       return null;
     }
@@ -376,7 +405,8 @@ function Workspace() {
     if (!draft) return;
 
     const replacing =
-      (part !== "impression" && findings.trim()) || (part !== "findings" && impression.trim());
+      (part !== "impression" && findingsRef.current.trim()) ||
+      (part !== "findings" && impressionRef.current.trim());
     if (replacing && !window.confirm("Replace the text in the report editor with the AI draft?")) {
       return;
     }
@@ -395,7 +425,7 @@ function Workspace() {
     const trimmed = text.trim();
     if (!trimmed || !study || chatSending) return;
 
-    if (!aiReady) {
+    if (!(await ensureAiReady())) {
       setChatMessages((current) => [
         ...current,
         { role: "user", text: trimmed },
@@ -453,7 +483,9 @@ function Workspace() {
   };
 
   const saveDraft = async () => {
-    if (!study) return;
+    if (!study || saving || draftLoading || draftLoadError) return;
+    const sentFindings = findings;
+    const sentImpression = impression;
     setSaving(true);
     setSaved(false);
 
@@ -465,8 +497,8 @@ function Workspace() {
         },
         body: JSON.stringify({
           study_id: study.id,
-          findings,
-          impression,
+          findings: sentFindings,
+          impression: sentImpression,
         }),
       });
 
@@ -476,7 +508,9 @@ function Workspace() {
       }
 
       await response.json();
-      setSaved(true);
+      setSaved(
+        findingsRef.current === sentFindings && impressionRef.current === sentImpression,
+      );
       setFinalizedReportId(null);
     } catch (error) {
       console.error("Could not save report draft:", error);
@@ -639,6 +673,14 @@ function Workspace() {
                     key={item.id}
                     onClick={() => {
                       setShowStudies(false);
+                      if (item.id === study.id) return;
+                      if (
+                        !saved &&
+                        (findings.trim() || impression.trim()) &&
+                        !window.confirm("You have unsaved report text. Leave this study without saving?")
+                      ) {
+                        return;
+                      }
                       navigate(`/workspace/${item.id}`);
                     }}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition hover:bg-white/5 ${
@@ -1212,6 +1254,12 @@ function Workspace() {
                 {saved ? "Saved" : "Draft"}
               </span>
 
+              {draftLoadError && (
+                <span className="rounded-md bg-red-400/10 px-2 py-1 text-[10px] text-red-300">
+                  {draftLoadError}
+                </span>
+              )}
+
               {finalizedReportId && (
                 <span className="flex items-center gap-2 rounded-md bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-300">
                   Report {finalizedReportId} is finalized
@@ -1234,8 +1282,9 @@ function Workspace() {
               </button>
 
               <button
-                onClick={saveDraft}
-                className="flex items-center gap-2 rounded-lg bg-[#7047ff] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#805cff]"
+                onClick={() => void saveDraft()}
+                disabled={saving || draftLoading || Boolean(draftLoadError)}
+                className="flex items-center gap-2 rounded-lg bg-[#7047ff] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#805cff] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saved && <Check size={13} />}
                 {saving ? "Saving..." : saved ? "Saved" : finalizedReportId ? "Save new draft" : "Save Draft"}
@@ -1259,8 +1308,9 @@ function Workspace() {
                   setFindings(event.target.value);
                   setSaved(false);
                 }}
-                placeholder="Document imaging findings..."
-                className="mt-2 min-h-0 flex-1 resize-none rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs leading-5 text-white outline-none placeholder:text-white/20 transition focus:border-[#7047ff]/50"
+                disabled={draftLoading || Boolean(draftLoadError)}
+                placeholder={draftLoading ? "Loading draft..." : "Document imaging findings..."}
+                className="mt-2 min-h-0 flex-1 resize-none rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs leading-5 text-white outline-none placeholder:text-white/20 transition focus:border-[#7047ff]/50 disabled:opacity-60"
               />
             </div>
 
@@ -1277,8 +1327,9 @@ function Workspace() {
                   setImpression(event.target.value);
                   setSaved(false);
                 }}
-                placeholder="Enter impression..."
-                className="mt-2 min-h-0 flex-1 resize-none rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs leading-5 text-white outline-none placeholder:text-white/20 transition focus:border-[#7047ff]/50"
+                disabled={draftLoading || Boolean(draftLoadError)}
+                placeholder={draftLoading ? "Loading draft..." : "Enter impression..."}
+                className="mt-2 min-h-0 flex-1 resize-none rounded-xl border border-white/10 bg-white/[0.02] p-3 text-xs leading-5 text-white outline-none placeholder:text-white/20 transition focus:border-[#7047ff]/50 disabled:opacity-60"
               />
             </div>
           </div>

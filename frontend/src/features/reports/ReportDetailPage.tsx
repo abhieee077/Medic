@@ -19,6 +19,7 @@ function ReportDetailPage() {
   const [findings, setFindings] = useState("");
   const [impression, setImpression] = useState("");
   const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -87,6 +88,8 @@ function ReportDetailPage() {
   const isFinalized = report.status === "Finalized";
 
   const saveDraft = async () => {
+    if (busy) return;
+    setBusy(true);
     setSaved(false);
 
     try {
@@ -123,6 +126,8 @@ function ReportDetailPage() {
     } catch (error) {
       console.error("Could not save report:", error);
       window.alert("Could not save the report. Please check the backend and try again.");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -135,7 +140,8 @@ function ReportDetailPage() {
         : "Finalize this report? You will not be able to save it as a draft afterward.",
     );
 
-    if (!confirmed) return;
+    if (!confirmed || busy) return;
+    setBusy(true);
 
     try {
       const endpoint = reopening
@@ -149,8 +155,14 @@ function ReportDetailPage() {
       });
 
       if (!response.ok) {
-        const message = await response.text();
-        throw new Error(`Report update failed (${response.status}): ${message}`);
+        let message = `Report update failed (${response.status}).`;
+        try {
+          const data = await response.json();
+          if (typeof data.detail === "string") message = data.detail;
+        } catch {
+          // Keep the generic message.
+        }
+        throw new Error(message);
       }
 
       const result = await response.json();
@@ -174,10 +186,14 @@ function ReportDetailPage() {
     } catch (error) {
       console.error("Could not update report status:", error);
       window.alert(
-        error instanceof Error
-          ? error.message
-          : "Could not update the report. Please try again.",
+        error instanceof TypeError
+          ? "Could not reach the backend. Check that it is running and try again."
+          : error instanceof Error
+            ? error.message
+            : "Could not update the report. Please try again.",
       );
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -227,8 +243,8 @@ function ReportDetailPage() {
           </button>
 
           <button
-            onClick={saveDraft}
-            disabled={isFinalized}
+            onClick={() => void saveDraft()}
+            disabled={isFinalized || busy}
             className="flex h-9 items-center gap-2 rounded-xl border border-white/10 px-3 text-xs text-white/55 transition hover:bg-white/5 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
           >
             {saved ? <Check size={14} /> : <Save size={14} />}
@@ -236,7 +252,8 @@ function ReportDetailPage() {
           </button>
 
           <button
-            onClick={toggleFinalize}
+            onClick={() => void toggleFinalize()}
+            disabled={busy}
             className={`flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-medium transition ${
               isFinalized
                 ? "border border-white/10 text-white/55 hover:bg-white/5 hover:text-white"

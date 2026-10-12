@@ -1,6 +1,13 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import AppShell from "./components/layout/AppShell";
 import Workspace from "./pages/Workspace";
+
+// One Workspace instance per study, so results that arrive after switching
+// studies (AI analysis, chat replies, saves) can't land in the new study.
+function WorkspaceRoute() {
+  const { studyId } = useParams();
+  return <Workspace key={studyId ?? "default"} />;
+}
 
 import DashboardPage from "./features/dashboard/DashboardPage";
 
@@ -61,12 +68,12 @@ function App() {
           {/* Workspace */}
           <Route
             path="/workspace"
-            element={<Workspace />}
+            element={<WorkspaceRoute />}
           />
 
           <Route
             path="/workspace/:studyId"
-            element={<Workspace />}
+            element={<WorkspaceRoute />}
           />
 
           {/* Reports */}

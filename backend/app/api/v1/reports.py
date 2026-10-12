@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,11 +36,12 @@ class FinalizeReportRequest(BaseModel):
     impression: str = ""
 
 
-def report_to_dict(report: Report) -> dict:
+def report_to_dict(report: Report, study_public_id: str | None = None) -> dict:
     return {
         "id": str(report.id),
         "report_id": report.report_id,
-        "study_id": str(report.study_id),
+        # Public study ID (e.g. ST-00192), the same identifier the list returns.
+        "study_id": study_public_id or str(report.study_id),
         "status": report.status,
         "findings": report.findings or "",
         "impression": report.impression or "",
@@ -52,7 +53,16 @@ def report_to_dict(report: Report) -> dict:
             report.updated_at.isoformat()
             if report.updated_at else None
         ),
+        "finalized_at": (
+            report.finalized_at.isoformat()
+            if report.finalized_at else None
+        ),
     }
+
+
+def _public_study_id(db: Session, report: Report) -> str | None:
+    study = db.get(Study, report.study_id)
+    return study.study_id if study else None
 
 
 @router.post("/")
@@ -99,7 +109,7 @@ def save_draft(
             detail="Could not save report draft",
         )
 
-    return report_to_dict(report)
+    return report_to_dict(report, study.study_id)
 
 
 @router.post("/{report_id}/finalize")
@@ -121,7 +131,7 @@ def finalize_report(
     report.findings = payload.findings
     report.impression = payload.impression
     report.status = "FINALIZED"
-    report.finalized_at = datetime.now()
+    report.finalized_at = datetime.now(timezone.utc)
 
     try:
         db.commit()
@@ -133,7 +143,7 @@ def finalize_report(
             detail="Could not finalize report",
         )
 
-    return report_to_dict(report)
+    return report_to_dict(report, _public_study_id(db, report))
 
 @router.post("/{report_id}/reopen")
 def reopen_report(
@@ -150,6 +160,19 @@ def reopen_report(
     if report.status != "FINALIZED":
         raise HTTPException(status_code=409, detail="Report is not finalized")
 
+    # A study keeps one active draft; saving targets that draft by study.
+    other_draft = db.execute(
+        select(Report.report_id)
+        .where(Report.study_id == report.study_id)
+        .where(Report.status == "DRAFT")
+        .where(Report.id != report.id)
+    ).scalars().first()
+    if other_draft:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This study already has an open draft ({other_draft}). Finish or finalize it first.",
+        )
+
     report.status = "DRAFT"
     report.finalized_at = None
 
@@ -163,7 +186,7 @@ def reopen_report(
             detail="Could not reopen report",
         )
 
-    return report_to_dict(report)
+    return report_to_dict(report, _public_study_id(db, report))
 
 @router.get("/study/{study_id}")
 def get_study_draft(
@@ -192,7 +215,7 @@ def get_study_draft(
 
     return {
         "study_id": study.study_id,
-        "draft": report_to_dict(report),
+        "draft": report_to_dict(report, study.study_id),
     }
 
 
